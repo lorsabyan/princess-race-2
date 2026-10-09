@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Model Lab</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #cfe6ff; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #lab-info {
+        position: fixed; left: 8px; bottom: 8px; padding: 6px 8px; border-radius: 6px;
+        font: 12px/1.35 ui-monospace, Menlo, monospace; color: #2b2340; background: rgba(255,255,255,.72);
+        white-space: pre; pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="lab-info"></div>
+    <script type="module" src="/src/lab/lab.ts"></script>
+  </body>
+</html>
