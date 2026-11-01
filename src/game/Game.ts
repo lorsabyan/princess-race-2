@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Stage } from './view/Stage';
 import { Sky } from './view/Sky';
-import { Lighting, SUN_DIR } from './view/Lighting';
+import { Lighting, SUN_DIR, chooseLook } from './view/Lighting';
 import { CameraRig } from './view/CameraRig';
 import { WorldView } from './view/WorldView';
 import { Air } from './view/Air';
@@ -10,15 +10,16 @@ import { Input, type InputAction } from './input/Input';
 import { AudioEngine } from './audio/Audio';
 import { loadModelLibrary, type LibraryReport } from './models/library';
 import type { Backdrop, CarRig, Landmark, ModelLibrary, PrincessHome, PrincessRig } from './models/contracts';
+import { choosePaint, owns, paintById } from './sim/garage';
 import { generateLevel } from './sim/level';
 import { Sim, type SimEvent } from './sim/Sim';
 import { TUNING, type ObstacleKind } from './sim/config';
 import { Landscape } from './sim/landscape';
 import { areaAt } from './sim/route';
 import { newRoadPoint } from './sim/track';
-import { LOOK_NOW, REDUCED_MOTION } from './view/look';
+import { LOOK_NOW, REDUCED_MOTION, lookForLevel } from './view/look';
 import type { RoadWorld } from './view/warp';
-import { worldUniforms } from './models/kit/materials';
+import { setWindowGlow, worldUniforms } from './models/kit/materials';
 import { loadSave, ui, writeSave } from '../app/state';
 
 const STEP = 1 / 60;
@@ -58,6 +59,15 @@ function smooth(t: number): number {
   const x = Math.max(0, Math.min(1, t));
   return x * x * (3 - 2 * x);
 }
+
+/** Share of the jump into the car spent crouching first. */
+const HOP_CROUCH = 0.2;
+/** Seconds between greetings, so a tapping child doesn't restart her wave. */
+const GREET_GAP = 1.4;
+/** At or below this CSS height the results card moves beside the car; matches styles.css. */
+const SHORT_SCREEN = 460;
+/** How far past the car the camera aims then, in meters. */
+const RESULTS_ASIDE = 3.1;
 
 /**
  * Orchestrates one play session: loading, title, intro cinematic, driving
@@ -103,6 +113,13 @@ export class Game {
   private readonly walkStart = new THREE.Vector3();
   private readonly walkEnd = new THREE.Vector3();
   private readonly titleTarget = new THREE.Vector3(-0.9, 1.0, 0.2);
+  private titleRadius = 6.8;
+  /** Her heading when the jump into the car began. */
+  private hopYaw: number | null = null;
+  /** Dip of the car as she lands in the seat, 1 fading to 0. */
+  private seatBump = 0;
+  /** When she last answered a tap on the title screen. */
+  private lastGreet = -10;
   private seated = false;
   /** QA warps (?at=) jump the camera straight to the car instead of easing there. */
   private snapCamera = false;
@@ -115,28 +132,34 @@ export class Game {
   private hiddenPause = false;
   /** Screenshot/QA freeze (?freeze=seconds): stops time without showing the pause menu. */
   private frozen = false;
+  /** The sky baked for reflections, one per look. */
+  private readonly skyLight = new Map<string, THREE.Texture>();
 
   constructor(canvas: HTMLCanvasElement) {
     window.__threeReady = false;
     this.level = Number(params.get('level')) || this.save.level;
+    chooseLook(lookForLevel(this.level));
     ui.level.value = this.level;
+    ui.furthest.value = Math.max(this.save.level, this.level);
+    ui.garage.value = this.save.garage;
     ui.bestStars.value = this.save.bestStars;
     ui.muted.value = this.save.muted;
     this.audio.setMuted(this.save.muted);
 
+    // See `freeze` in WorldView: the root of the scene never moves.
+    this.scene.matrixAutoUpdate = false;
     this.stage = new Stage(canvas, this.scene, this.camera);
     this.cam = new CameraRig(this.camera);
     this.sky = new Sky({ sunDir: SUN_DIR });
     this.scene.add(this.sky.group);
-    this.scene.environment = Sky.bakeEnvironment(this.stage.renderer, SUN_DIR);
-    this.scene.environmentIntensity = LOOK_NOW.env;
     this.scene.fog = new THREE.Fog(LOOK_NOW.fog, 120, 420);
     this.lighting = new Lighting(this.scene);
     this.stage.shadowLights.push(this.lighting.sun);
     this.scene.add(this.vfx.group, this.air.group);
-    worldUniforms.uCloudShade.value = LOOK_NOW.shade.cloud;
+    this.applyLook();
 
     this.input = new Input(canvas, (action) => this.onAction(action));
+    canvas.addEventListener('pointerdown', this.onTitleTap);
     document.addEventListener('visibilitychange', this.onVisibility);
 
     window.__GAME__ = { stats: () => this.stats(), game: this };
@@ -159,6 +182,7 @@ export class Game {
     await this.yieldFrame();
 
     this.car = this.lib.createCar();
+    this.paintCar();
     this.princess = this.lib.createPrincess();
     ui.loadProgress.value = 0.25;
     await this.yieldFrame();
@@ -185,12 +209,14 @@ export class Game {
 
   dispose(): void {
     cancelAnimationFrame(this.frameId);
+    this.stage.canvas.removeEventListener('pointerdown', this.onTitleTap);
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.input.dispose();
     this.audio.dispose();
     this.world?.dispose();
     this.vfx.dispose();
     this.air.dispose();
+    for (const texture of this.skyLight.values()) texture.dispose();
     this.stage.dispose();
   }
 
@@ -249,16 +275,45 @@ export class Game {
 
   async nextLevel(): Promise<void> {
     this.audio.tap();
-    this.level += 1;
-    ui.level.value = this.level;
-    ui.screen.value = 'loading';
-    ui.loadProgress.value = 0.1;
-    await this.loadLevel(this.level, (p) => {
-      ui.loadProgress.value = 0.1 + p * 0.85;
-    });
-    ui.loadProgress.value = 1;
+    await this.changeLevel(this.level + 1);
     this.showTitle();
     this.startIntro(true);
+  }
+
+  /** A level picked on the map. Levels she hasn't reached yet stay shut. */
+  async pickLevel(level: number): Promise<void> {
+    this.audio.unlock();
+    this.audio.tap();
+    if (level > ui.furthest.value) return;
+    ui.mapOpen.value = false;
+    if (level === this.level) return;
+    await this.changeLevel(level);
+    this.showTitle();
+  }
+
+  openMap(open: boolean): void {
+    this.audio.unlock();
+    this.audio.tap();
+    ui.mapOpen.value = open;
+  }
+
+  /** A paint swatch: wears it if it's owned or can be bought, nudges it if not yet. */
+  tapPaint(id: string): void {
+    this.audio.unlock();
+    const garage = this.save.garage;
+    const bought = !owns(garage, id);
+    if (!choosePaint(garage, id)) {
+      this.audio.tap();
+      ui.paintNudge.value = { id, at: performance.now() };
+      return;
+    }
+    if (bought) this.audio.fanfare();
+    else this.audio.tap();
+    this.paintCar();
+    ui.garage.value = { ...garage };
+    writeSave(this.save);
+    this.tmp.copy(this.carPos).add(new THREE.Vector3(0, 1.6, 0));
+    this.vfx.hearts(this.tmp, bought ? 10 : 4);
   }
 
   goHome(): void {
@@ -273,7 +328,48 @@ export class Game {
   // Level + modes
   // ---------------------------------------------------------------------------
 
+  private paintCar(): void {
+    const paint = paintById(this.save.garage.paint);
+    if (paint) this.car.setPaint(paint.color);
+  }
+
+  private async changeLevel(level: number): Promise<void> {
+    this.level = level;
+    ui.level.value = level;
+    ui.furthest.value = Math.max(ui.furthest.value, level);
+    ui.screen.value = 'loading';
+    ui.loadProgress.value = 0.1;
+    await this.loadLevel(level, (p) => {
+      ui.loadProgress.value = 0.1 + p * 0.85;
+    });
+    ui.loadProgress.value = 1;
+  }
+
+  /** Dress everything that outlives a level in the current look. Terrain and water are built new each level. */
+  private applyLook(): void {
+    let skyLight = this.skyLight.get(LOOK_NOW.name);
+    if (!skyLight) {
+      skyLight = Sky.bakeEnvironment(this.stage.renderer, SUN_DIR);
+      this.skyLight.set(LOOK_NOW.name, skyLight);
+    }
+    this.scene.environment = skyLight;
+    this.scene.environmentIntensity = LOOK_NOW.env;
+    (this.scene.fog as THREE.Fog).color.set(LOOK_NOW.fog);
+    setWindowGlow(LOOK_NOW.lights);
+    this.lighting.applyLook();
+    this.sky.applyLook(SUN_DIR);
+    this.stage.applyLook();
+    this.air.applyLook(SUN_DIR);
+    this.backdrop?.applyLook?.();
+    this.car?.applyLook?.();
+  }
+
   private async loadLevel(level: number, onProgress: (p: number) => void): Promise<void> {
+    const look = lookForLevel(level);
+    if (look !== LOOK_NOW.name) {
+      chooseLook(look);
+      this.applyLook();
+    }
     this.world?.dispose();
     const data = generateLevel(level);
     this.sim = new Sim(data);
@@ -305,6 +401,8 @@ export class Game {
     this.audio.playSong('title');
     this.seated = false;
     this.driveStarted = false;
+    this.hopYaw = null;
+    this.princess.root.scale.setScalar(1);
     // Car parked at the start, princess waiting at the end of her garden path.
     this.carPos.set(0, 0, 0);
     this.car.root.position.set(0, 0, 0);
@@ -319,7 +417,11 @@ export class Game {
     const back = Math.min(1, 1.8 / Math.max(0.01, end.distanceTo(before)));
     this.walkStart.copy(end).lerp(before, back);
     this.walkEnd.copy(end);
-    this.titleTarget.set((this.walkStart.x + 0) / 2, 1.0, (this.walkStart.z + 0) / 2);
+    // Tall screens have less width, so they stand further back and lean toward the long car.
+    const tall = this.stage.aspect < 1;
+    const toward = tall ? 0.3 : 0.5;
+    this.titleRadius = tall ? 7.8 : 6.8;
+    this.titleTarget.set(this.walkStart.x * toward, 1.0, this.walkStart.z * toward);
     this.princess.root.position.set(this.walkStart.x, this.princess.standHeight, this.walkStart.z);
     this.princess.root.rotation.set(0, Math.PI * 0.9, 0);
     this.input.enabled = false;
@@ -328,7 +430,7 @@ export class Game {
     worldUniforms.uCurveY.value = DRIVE_BEND;
     this.cam.followLambda = 2.2;
     this.cam.targetLambda = 3;
-    this.cam.orbit(this.titleTarget, 6.8, 1.3, Math.PI - 0.55, 40, this.stage.aspect);
+    this.cam.orbit(this.titleTarget, this.titleRadius, 1.3, Math.PI - 0.55, 40, this.stage.aspect);
     this.cam.snap();
     // Greet the camera right away.
     const cp = this.camera.position;
@@ -375,11 +477,13 @@ export class Game {
   private seatPrincess(): void {
     if (this.seated) return;
     this.seated = true;
+    this.hopYaw = null;
     this.princess.setPose('sit');
     this.princess.root.removeFromParent();
     this.car.seat.add(this.princess.root);
     this.princess.root.position.set(0, 0, 0);
     this.princess.root.rotation.set(0, 0, 0);
+    this.princess.root.scale.setScalar(1);
   }
 
   // ---------------------------------------------------------------------------
@@ -440,7 +544,7 @@ export class Game {
       this.titleWave = 6 + Math.random() * 3;
     }
     const angle = Math.PI - 0.55 + (REDUCED_MOTION ? 0 : Math.sin(this.time * 0.13) * 0.28);
-    this.cam.orbit(this.titleTarget, 6.8, 1.3, angle, 40, this.stage.aspect);
+    this.cam.orbit(this.titleTarget, this.titleRadius, 1.3, angle, 40, this.stage.aspect);
     // She turns to face the camera.
     const p = this.princess.root.position;
     const face = Math.atan2(-(this.camera.position.x - p.x), -(this.camera.position.z - p.z));
@@ -454,15 +558,9 @@ export class Game {
     const p = this.princess;
     if (this.introSkipped) {
       // Quick hop straight into the seat.
-      this.car.seat.getWorldPosition(this.seatWorld);
       if (!this.seated) {
-        const k = smooth(t / 0.7);
-        this.tmp.copy(this.walkEnd).setY(p.standHeight).lerp(this.seatWorld, k);
-        this.tmp.y += Math.sin(k * Math.PI) * 1.1;
-        p.root.position.copy(this.tmp);
-        p.root.rotation.y = dampAngle(p.root.rotation.y, 0, 10, dt);
-        if (k > 0.5) p.setPose('sit');
-        if (t >= 0.7) this.seatPrincess();
+        this.hopToSeat(t / 0.7, 1.1);
+        if (t >= 0.7) this.landInSeat();
       }
       this.cam.chase(this.road!.track, 0, 0, 0, 0, this.stage.aspect);
       if (t > 0.9) this.startDrive();
@@ -481,15 +579,10 @@ export class Game {
         p.update(dt, { time: this.time, steer: 0, speed: 0, walk: 1 });
         this.cam.look(new THREE.Vector3(-6.2, 2.6, 4.2), new THREE.Vector3(-1.1, 1.0, 0), 42);
       } else if (!this.seated) {
-        const k = smooth((t - walkDur) / hopDur);
-        this.car.seat.getWorldPosition(this.seatWorld);
-        this.tmp.copy(this.walkEnd).setY(p.standHeight).lerp(this.seatWorld, k);
-        this.tmp.y += Math.sin(k * Math.PI) * 1.2;
-        p.root.position.copy(this.tmp);
-        p.root.rotation.y = dampAngle(p.root.rotation.y, 0, 8, dt);
-        if (k > 0.5) p.setPose('sit');
-        if (k >= 1) {
-          this.seatPrincess();
+        const hop = (t - walkDur) / hopDur;
+        this.hopToSeat(hop, 1.2);
+        if (hop >= 1) {
+          this.landInSeat();
           p.wave();
         }
         this.cam.chase(this.road!.track, 0, 0, 0, 0, this.stage.aspect);
@@ -499,7 +592,34 @@ export class Game {
       if (t > walkDur + hopDur + 1.0) this.startDrive();
     }
     if (!this.seated) p.update(dt, { time: this.time, steer: 0, speed: 0, walk: this.introSkipped ? 0 : 1 });
-    this.car.update(dt, { time: this.time, speed: 0, steer: 0, bump: 0 });
+    this.seatBump = Math.max(0, this.seatBump - dt * 5);
+    this.car.update(dt, { time: this.time, speed: 0, steer: 0, bump: this.seatBump });
+  }
+
+  /** Crouch, then jump from the pavement into the seat with a twirl. `hop` runs 0 to 1. */
+  private hopToSeat(hop: number, height: number): void {
+    const p = this.princess;
+    if (this.hopYaw === null) this.hopYaw = Math.atan2(Math.sin(p.root.rotation.y), Math.cos(p.root.rotation.y));
+    const k = smooth((hop - HOP_CROUCH) / (1 - HOP_CROUCH));
+    this.car.seat.getWorldPosition(this.seatWorld);
+    this.tmp.copy(this.walkEnd).setY(p.standHeight).lerp(this.seatWorld, k);
+    this.tmp.y += Math.sin(k * Math.PI) * height;
+    p.root.position.copy(this.tmp);
+    p.root.rotation.y = THREE.MathUtils.lerp(this.hopYaw, REDUCED_MOTION ? 0 : -Math.PI * 2, k);
+    // Squash down to jump, stretch out in the air.
+    const crouch = hop < HOP_CROUCH ? -0.15 * Math.sin((Math.max(0, hop) / HOP_CROUCH) * Math.PI) : 0;
+    const stretch = REDUCED_MOTION ? 0 : crouch + 0.1 * Math.sin(k * Math.PI);
+    p.root.scale.set(1 - stretch * 0.6, 1 + stretch, 1 - stretch * 0.6);
+    // The skirt can only swap for her lap once the door hides it.
+    if (k > 0.82) p.setPose('sit');
+  }
+
+  private landInSeat(): void {
+    this.seatPrincess();
+    this.seatBump = 0.8;
+    this.audio.land();
+    this.tmp.copy(this.seatWorld).setY(this.seatWorld.y + 1.3);
+    this.vfx.hearts(this.tmp, 5);
   }
 
   private stepSim(dt: number): void {
@@ -616,8 +736,11 @@ export class Game {
     const best = this.save.bestStars[this.level] ?? 0;
     this.save.bestStars = { ...this.save.bestStars, [this.level]: Math.max(best, sim.stars) };
     this.save.level = Math.max(this.save.level, this.level + 1);
+    this.save.garage.wallet += sim.collected;
     writeSave(this.save);
     ui.bestStars.value = this.save.bestStars;
+    ui.furthest.value = this.save.level;
+    ui.garage.value = { ...this.save.garage };
     this.resultsConfetti = 0.4;
   }
 
@@ -682,7 +805,14 @@ export class Game {
         this.cam.targetLambda = 3;
         // Portrait screens widen the orbit a lot, so start closer and higher to clear courtyard props.
         const portrait = this.stage.aspect < 1;
-        if (this.mode === 'results') {
+        if (this.mode === 'results' && this.stage.size.height <= SHORT_SCREEN) {
+          // A phone on its side has no room above the card, which sits beside her instead: aim past the car so it stays clear.
+          this.tmp.copy(this.carPos);
+          this.tmp.x += Math.cos(angle) * RESULTS_ASIDE;
+          this.tmp.y += 0.7;
+          this.tmp.z -= Math.sin(angle) * RESULTS_ASIDE;
+          this.cam.orbit(this.tmp, 7.6, 2, angle, 44, this.stage.aspect);
+        } else if (this.mode === 'results') {
           // Aim below the car so she celebrates in the upper half, above the results card.
           this.cam.orbit(this.tmp.copy(this.carPos).setY(this.carPos.y + (portrait ? -1.3 : -0.7)), portrait ? 5.6 : 8.2, portrait ? 4.8 : 3.2, angle, 44, this.stage.aspect);
         } else {
@@ -690,7 +820,9 @@ export class Game {
         }
       }
       if (car.speed > 1 && this.mode !== 'results') this.vfx.trail(dt, this.carPos, car.speed, frame.heading);
-      if (areaAt(track.route, -z) === 'forest') this.vfx.fireflies(dt, this.carPos, frame.heading);
+      // Fireflies live in the forest, and come out everywhere but the town at dusk.
+      const area = areaAt(track.route, -z);
+      if (area === 'forest' || (LOOK_NOW.lights > 0.5 && area !== 'town')) this.vfx.fireflies(dt, this.carPos, frame.heading);
       this.audio.setEngine(car.speed, !ui.paused.value && car.speed > 0.2);
     }
 
@@ -714,12 +846,27 @@ export class Game {
     const here = areaAt(this.road!.track.route, -sim.car.z);
     this.air.update(dt, this.carPos, ahead.heading, here, this.stage.tier);
     worldUniforms.uCloudShift.value.set(this.time * 2.7, this.time * 1.3);
-    worldUniforms.uDapple.value += ((here === 'forest' ? LOOK_NOW.shade.canopy : 0) - worldUniforms.uDapple.value) * (1 - Math.exp(-1.4 * dt));
+    // Drifting sun and shade read the noise texture on every pixel of the world: the lowest tier goes without.
+    const full = this.stage.tier !== 'low';
+    worldUniforms.uCloudShade.value = full ? LOOK_NOW.shade.cloud : 0;
+    worldUniforms.uDapple.value += ((full && here === 'forest' ? LOOK_NOW.shade.canopy : 0) - worldUniforms.uDapple.value) * (1 - Math.exp(-1.4 * dt));
   }
 
   // ---------------------------------------------------------------------------
   // Input & platform
   // ---------------------------------------------------------------------------
+
+  /** Little fingers tap the picture: she waves and giggles back. */
+  private readonly onTitleTap = (): void => {
+    if (this.mode !== 'title' || this.time - this.lastGreet < GREET_GAP) return;
+    this.lastGreet = this.time;
+    this.titleWave = 6;
+    this.audio.unlock();
+    this.audio.giggle();
+    this.princess.wave();
+    this.tmp.copy(this.princess.root.position).setY(this.princess.root.position.y + 1.5);
+    this.vfx.hearts(this.tmp, 4);
+  };
 
   private onAction(action: InputAction): void {
     if (action === 'pause') {

@@ -59,8 +59,8 @@ export function addSeat(ctx: TrimContext): void {
   const cushionOutline: THREE.Vector2[] = [];
   const cw = 0.29;
   const cd = 0.23;
-  for (let i = 0; i < 44; i += 1) {
-    const a = (i / 44) * Math.PI * 2;
+  for (let i = 0; i < 28; i += 1) {
+    const a = (i / 28) * Math.PI * 2;
     const c = Math.cos(a);
     const s = Math.sin(a);
     // Superellipse (rounded square) outline.
@@ -75,11 +75,11 @@ export function addSeat(ctx: TrimContext): void {
   // Pillow faces +Z; lay it flat (front up) with its top at the seat height.
   b.add(cushionGeo, PAL.seat, PBR.leather, { p: [0, sy - 0.05, sz], r: [-Math.PI / 2, 0, 0], s: [1, 1, 1] });
   // Front bolster roll.
-  b.add(capsule(0.048, 0.44, 4, 12), PAL.seat, PBR.leather, { p: [0, sy - 0.055, sz - 0.2], r: [0, 0, Math.PI / 2] });
+  b.add(capsule(0.048, 0.44, 3, 9), PAL.seat, PBR.leather, { p: [0, sy - 0.055, sz - 0.2], r: [0, 0, Math.PI / 2] });
 
   // Heart backrest.
   const size = 0.74;
-  const outline = heartOutline(size, 58);
+  const outline = heartOutline(size, 40);
   const center = new THREE.Vector2(0, 0.0);
   const buttons: THREE.Vector2[] = [];
   const rows: Array<[number, number[]]> = [
@@ -104,7 +104,7 @@ export function addSeat(ctx: TrimContext): void {
     back: 0.05,
     dent,
     flat: 2.6,
-    rings: [0.16, 0.32, 0.47, 0.6, 0.72, 0.82, 0.9, 0.96, 1],
+    rings: [0.2, 0.42, 0.62, 0.78, 0.9, 1],
   });
   const recline = 0.2;
   const heartTop = size * 0.5 * 0.9;
@@ -113,7 +113,7 @@ export function addSeat(ctx: TrimContext): void {
   const heartOpts = { p: [0, hy, hz] as V3, r: [recline, Math.PI, 0] as V3 };
   b.add(heart, PAL.seat, PBR.leather, heartOpts);
   // Gold piping around the heart rim.
-  const piping = outlineTube(outline, 0.014, (p) => new THREE.Vector3(p.x, p.y, 0), 76, 6);
+  const piping = outlineTube(outline, 0.014, (p) => new THREE.Vector3(p.x, p.y, 0), 52, 5);
   b.add(piping, PAL.gold, PBR.gold, heartOpts);
   // Tufting buttons (little pearls sitting in the dents).
   const m = new THREE.Matrix4().compose(
@@ -121,7 +121,7 @@ export function addSeat(ctx: TrimContext): void {
     new THREE.Quaternion().setFromEuler(new THREE.Euler(...heartOpts.r)),
     new THREE.Vector3(1, 1, 1),
   );
-  const btn = sphere(0.016, 6, 4);
+  const btn = sphere(0.016, 5, 3);
   for (const p of buttons) {
     const rho = rhoInOutline(outline, center, p);
     const prof = Math.pow(Math.max(0, 1 - Math.pow(rho, 2.6)), 0.5);
@@ -184,7 +184,7 @@ export function addCoaming(ctx: TrimContext, cockpit: { hx: number; hz: number; 
     pts.push(new THREE.Vector3(x, h.p[1] - 0.012, z));
   }
   const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
-  ctx.body.add(new THREE.TubeGeometry(curve, 100, 0.036, 8, true), PAL.seat, PBR.leather);
+  ctx.body.add(new THREE.TubeGeometry(curve, 72, 0.036, 6, true), PAL.seat, PBR.leather);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +317,7 @@ export function addBumpers(ctx: TrimContext): { rearZ: number; rearY: number } {
     rear.push(new THREE.Vector3(x * 1.03, yR, r.p[2] + 0.06));
   }
   const bar = (pts: THREE.Vector3[], y: number) => {
-    const g = pathTube(pts, 0.045, 48, 8);
+    const g = pathTube(pts, 0.045, 32, 7);
     // Oval section: stretch vertically around the bar height.
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i += 1) pos.setY(i, y + (pos.getY(i) - y) * 1.45);
@@ -386,7 +386,7 @@ export function addGrille(ctx: TrimContext): void {
   g.add(slab, '#4b2446', PBR.recess, { p: [0, cy, zRef], r: e });
   const m = new THREE.Matrix4().compose(new THREE.Vector3(0, cy, zRef), new THREE.Quaternion().setFromEuler(new THREE.Euler(...e)), new THREE.Vector3(1, 1, 1));
   // Chrome surround.
-  g.add(outlineTube(outline, 0.016, (q) => new THREE.Vector3(q.x, q.y, 0.002).applyMatrix4(m), 64, 6), PAL.chrome, PBR.chrome);
+  g.add(outlineTube(outline, 0.016, (q) => new THREE.Vector3(q.x, q.y, 0.002).applyMatrix4(m), 44, 5), PAL.chrome, PBR.chrome);
   // Two slim horizontal slats following the smile curve (a grille, not teeth).
   const mid = (x: number) => (thick * 0.42 + curl * 0.7 * (x / w) ** 2 + (-thick * 0.58 + curl * 1.25 * (x / w) ** 2)) / 2;
   for (const off of [-0.017, 0.015]) {
@@ -395,7 +395,7 @@ export function addGrille(ctx: TrimContext): void {
       const x = -w * 0.86 + (w * 1.72 * i) / 10;
       pts.push(new THREE.Vector3(x, mid(x) + off * (1 - 0.35 * (x / w) ** 2), 0.004).applyMatrix4(m));
     }
-    g.add(pathTube(pts, 0.0075, 24, 5), PAL.chrome, PBR.chrome);
+    g.add(pathTube(pts, 0.0075, 16, 4), PAL.chrome, PBR.chrome);
   }
   // Wrap: shift every vertex so the grille face rides ~1 cm in front of the nose.
   const built = g.build();
@@ -546,13 +546,13 @@ export function addSpare(ctx: TrimContext, wheel: WheelBuild): { center: THREE.V
   );
   dome.applyMatrix4(m);
   ctx.body.add(dome, PAL.carPaint, PBR.paint, { role: ROLE_PAINT, t: 0.25 });
-  const ring = torus(R * 0.585, 0.014, 8, 40);
+  const ring = torus(R * 0.585, 0.014, 6, 32);
   ring.rotateY(Math.PI / 2);
   ring.translate(a0 + 0.012, 0, 0);
   ring.applyMatrix4(m);
   ctx.body.add(ring, PAL.gold, PBR.gold);
   // Pillows bulge toward +Z: turn it to the wheel's face (+X) with the heart's top up the world.
-  const heart = pillow(heartOutline(R * 0.82, 40), new THREE.Vector2(0, 0), { front: 0.022, back: 0, rings: [0.45, 0.8, 0.95, 1], flat: 2.2 });
+  const heart = pillow(heartOutline(R * 0.82, 30), new THREE.Vector2(0, 0), { front: 0.022, back: 0, rings: [0.5, 0.85, 1], flat: 2.2 });
   heart.rotateY(Math.PI / 2);
   heart.translate(a0 + 0.05, 0, 0);
   heart.applyMatrix4(m);
@@ -591,11 +591,11 @@ function wrapOnto(field: SdfNode, g: THREE.BufferGeometry, h: SurfaceHit, lift: 
 export function addDoorHearts(ctx: TrimContext): void {
   for (const side of [-1, 1]) {
     const h = hit(ctx.field, [side * 1.4, COVE.y, COVE.z - 0.05], [-side, 0, 0]);
-    const outline = heartOutline(0.2, 40);
+    const outline = heartOutline(0.2, 28);
     const heart = pillow(outline, new THREE.Vector2(0, 0), { front: 0.006, back: 0, rings: [0.5, 0.88, 1], flat: 2.5 });
     const wrapped = wrapOnto(ctx.field, heart, h, 0.0025);
     ctx.body.add(wrapped, PAL.gemPink, PBR.enamel);
-    const rim = outlineTube(outline, 0.008, (q) => new THREE.Vector3(q.x * 1.02, q.y * 1.02, 0), 48, 4);
+    const rim = outlineTube(outline, 0.008, (q) => new THREE.Vector3(q.x * 1.02, q.y * 1.02, 0), 34, 4);
     ctx.body.add(wrapOnto(ctx.field, rim, h, 0.004), PAL.gold, PBR.gold);
     // Door handle: a small chrome capsule behind the heart, near the top of the door.
     const hh = hit(ctx.field, [side * 1.4, 0.8, 0.44], [-side, 0, 0]);
@@ -610,7 +610,7 @@ export function addDoorHearts(ctx: TrimContext): void {
 // Heart-shaped wing mirrors on chrome stalks, on top of the doors.
 // ---------------------------------------------------------------------------
 export function addMirrors(ctx: TrimContext): void {
-  const heart = pillow(heartOutline(0.15, 28), new THREE.Vector2(0, 0), { front: 0.026, back: 0.012, rings: [0.5, 0.85, 1], flat: 2.2 });
+  const heart = pillow(heartOutline(0.15, 20), new THREE.Vector2(0, 0), { front: 0.026, back: 0.012, rings: [0.5, 1], flat: 2.2 });
   for (const side of [-1, 1]) {
     const h = hit(ctx.field, [side * 0.62, 1.6, -0.34], [0, -1, 0]);
     const base = new THREE.Vector3(...h.p);

@@ -4,10 +4,12 @@ import { roundedRectShape } from '../kit/geo';
 import type { CarRig, CarState } from '../contracts';
 import { Assembler, paintSet, recolor, type RecolorInfo } from './assembler';
 import { PBR, createCarMaterial, createGlassMaterial, createGlowMaterial } from './carMaterials';
-import { acquireCarEnvironment, releaseCarEnvironment } from './carEnv';
+import { acquireCarEnvironment, carEnvironmentNow, releaseCarEnvironment } from './carEnv';
+import { LOOK_NOW } from '../../view/look';
 import { COCKPIT, buildHull } from './hull';
 import { CAR } from './layout';
 import { PLATE_H, PLATE_W, createPlate } from './plate';
+import { decimate } from '../kit/decimate';
 import { buildSteeringWheelGeometry, createPennant } from './rigParts';
 import {
   addBumpers,
@@ -32,6 +34,24 @@ import { buildWheelGeometry } from './wheel';
 
 export type { CarRig, CarState } from '../contracts';
 
+/**
+ * Fill a shape with blurred edges. Safari has no canvas `filter`, so the shape is drawn
+ * off the canvas and only its soft shadow lands on it, which works everywhere.
+ */
+function softFill(g: CanvasRenderingContext2D, blur: number, color: string, shape: () => void): void {
+  const away = g.canvas.width * 2;
+  g.save();
+  g.shadowColor = color;
+  g.shadowBlur = blur;
+  g.shadowOffsetX = away;
+  g.translate(-away, 0);
+  g.fillStyle = color;
+  g.beginPath();
+  shape();
+  g.fill();
+  g.restore();
+}
+
 /** Alpha falls off softly from a car-shaped middle to nothing at the edge. */
 function contactTexture(): THREE.CanvasTexture {
   const w = 64;
@@ -40,12 +60,39 @@ function contactTexture(): THREE.CanvasTexture {
   canvas.width = w;
   canvas.height = h;
   const g = canvas.getContext('2d')!;
-  g.filter = 'blur(6px)';
-  g.fillStyle = '#ffffff';
-  g.beginPath();
-  g.roundRect(13, 12, w - 26, h - 24, 14);
-  g.fill();
+  softFill(g, 11, '#ffffff', () => g.roundRect(14, 13, w - 28, h - 26, 14));
   return new THREE.CanvasTexture(canvas);
+}
+
+/** Two pools of headlight on the road, the car's nose at the bottom edge. */
+function beamTexture(): THREE.CanvasTexture {
+  const w = 128;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext('2d')!;
+  for (const side of [-1, 1]) {
+    const x = w / 2 + side * 24;
+    softFill(g, 16, '#ffecb2', () => {
+      g.moveTo(x - 6, h - 6);
+      g.lineTo(x + 6, h - 6);
+      g.lineTo(x + side * 20 + 20, 20);
+      g.lineTo(x + side * 20 - 20, 20);
+      g.closePath();
+    });
+  }
+  // Fade out with distance.
+  g.globalCompositeOperation = 'destination-in';
+  const reach = g.createLinearGradient(0, h, 0, 0);
+  reach.addColorStop(0, 'rgba(0, 0, 0, 1)');
+  reach.addColorStop(0.55, 'rgba(0, 0, 0, 0.6)');
+  reach.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  g.fillStyle = reach;
+  g.fillRect(0, 0, w, h);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 
 /**
@@ -55,9 +102,11 @@ function contactTexture(): THREE.CanvasTexture {
  *   root                      (the game moves / yaws / rolls this)
  *   ├─ car-wheels             InstancedMesh, 4 road wheels (spin + steer)
  *   ├─ car-contact            soft shade on the road
+ *   ├─ car-beam               headlight pools, after dark
  *   └─ car-chassis            suspension bob, body roll and pitch
  *      ├─ car-squash          squash & stretch on bumps (origin on the ground)
  *      │   ├─ car-body        hull + all static trim (1 draw call, per-vertex PBR)
+ *      │   ├─ car-shadow      rough copy of the body: casts its shadow, never seen
  *      │   ├─ car-lamps       glowing headlight / heart tail-light lenses
  *      │   ├─ car-glass       windshield
  *      │   ├─ car-plate       "PRINCESS" licence plate
@@ -95,7 +144,9 @@ export function createCar(): CarRig {
   addHeadlights(ctx);
   addTailLights(ctx);
   addCrown(ctx);
-  addSpare(ctx, wheel);
+  const spare = buildWheelGeometry(20, true);
+  addSpare(ctx, spare);
+  spare.geometry.dispose();
   addDoorHearts(ctx);
   addMirrors(ctx);
   addTail(ctx, rear);
@@ -131,9 +182,21 @@ export function createCar(): CarRig {
 
   const bodyMesh = new THREE.Mesh(bodyGeometry, material);
   bodyMesh.name = 'car-body';
-  bodyMesh.castShadow = true;
+  bodyMesh.castShadow = false;
   bodyMesh.receiveShadow = true;
   squash.add(bodyMesh);
+
+  // The sun's shadow is soft, so a rough copy of the body casts the same one for a tenth of the triangles.
+  const rough = new THREE.BufferGeometry();
+  rough.setAttribute('position', bodyGeometry.attributes.position);
+  rough.setAttribute('normal', bodyGeometry.attributes.normal);
+  rough.setIndex(bodyGeometry.index);
+  const shadowGeometry = decimate(rough, 4000, { normalWeight: 0.05 });
+  const shadowMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, shadowSide: THREE.DoubleSide });
+  const shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
+  shadowMesh.name = 'car-shadow';
+  shadowMesh.castShadow = true;
+  squash.add(shadowMesh);
 
   // A soft pool of shade under the car, so it sits on the road whatever the sun is doing.
   const contactMap = contactTexture();
@@ -144,6 +207,21 @@ export function createCar(): CarRig {
   contact.name = 'car-contact';
   contact.position.y = 0.03;
   root.add(contact);
+
+  // Headlights on the road ahead, once it is dark enough to see them.
+  const beamMap = beamTexture();
+  const beamMaterial = new THREE.MeshBasicMaterial({ map: beamMap, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const beamGeometry = new THREE.PlaneGeometry(5.4, 15);
+  beamGeometry.rotateX(-Math.PI / 2);
+  const beam = new THREE.Mesh(beamGeometry, beamMaterial);
+  beam.name = 'car-beam';
+  beam.position.set(0, 0.035, -9);
+  root.add(beam);
+  const applyBeam = () => {
+    beamMaterial.opacity = LOOK_NOW.lights * 0.8;
+    beam.visible = LOOK_NOW.lights > 0.5;
+  };
+  applyBeam();
 
   const lampMesh = new THREE.Mesh(glowGeometry, glowMaterial);
   lampMesh.name = 'car-lamps';
@@ -176,7 +254,7 @@ export function createCar(): CarRig {
   steeringWheel.rotation.set(steerBaseX, 0, 0);
   const steeringMesh = new THREE.Mesh(steeringGeometry, material);
   steeringMesh.name = 'car-steering-wheel-mesh';
-  steeringMesh.castShadow = true;
+  steeringMesh.castShadow = false;
   steeringWheel.add(steeringMesh);
   seat.add(steeringWheel);
 
@@ -293,8 +371,15 @@ export function createCar(): CarRig {
       recolor(bodyGeometry, bodyRecolor, set);
       recolor(wheel.geometry, wheel.recolor, set);
     },
+    applyLook() {
+      material.envMap = carEnvironmentNow();
+      glassMaterial.envMap = material.envMap;
+      applyBeam();
+    },
     dispose() {
       bodyGeometry.dispose();
+      shadowGeometry.dispose();
+      shadowMaterial.dispose();
       glowGeometry.dispose();
       glassGeometry.dispose();
       steeringGeometry.dispose();
@@ -303,6 +388,9 @@ export function createCar(): CarRig {
       contactGeometry.dispose();
       contactMaterial.dispose();
       contactMap.dispose();
+      beamGeometry.dispose();
+      beamMaterial.dispose();
+      beamMap.dispose();
       plate.dispose();
       pennant.dispose();
       material.dispose();

@@ -83,7 +83,7 @@ export function buildPrincessGeometries(): PrincessGeometries {
 
   // --- Skin -------------------------------------------------------------
   let t = performance.now();
-  skin.add(decimate(buildHead(), 3800), {
+  skin.add(decimate(buildHead(), 3200), {
     p: HEAD_C,
     bone: B.head,
     uv: (x, y, z) => faceUv(x - HEAD_C[0], y - HEAD_C[1], z - HEAD_C[2]),
@@ -99,27 +99,27 @@ export function buildPrincessGeometries(): PrincessGeometries {
     },
   });
   t = performance.now();
-  for (const side of [-1, 1]) skin.add(decimate(buildArm(side), 850), { bone: armWeights(side) });
+  for (const side of [-1, 1]) skin.add(decimate(buildArm(side), 650), { bone: armWeights(side) });
   time('arms', t);
 
   // --- Hair ---------------------------------------------------------------
   t = performance.now();
-  hair.add(decimate(buildHair(), 5800), { p: HEAD_C, bone: B.head });
+  hair.add(decimate(buildHair(), 4600), { p: HEAD_C, bone: B.head });
   time('hair', t);
   t = performance.now();
   const headT = new THREE.Matrix4().makeTranslation(HEAD_C[0], HEAD_C[1], HEAD_C[2]);
   for (const side of [-1, 1]) {
     const joints = PIG_JOINTS.map((i) => headToRoot(pigPath(side)[i]));
     const bones = side < 0 ? [B.pigtailL1, B.pigtailL2, B.pigtailL3] : [B.pigtailR1, B.pigtailR2, B.pigtailR3];
-    hair.add(decimate(buildPigtail(side), 1500), { p: HEAD_C, bone: chainWeights(joints, bones, 0.8) });
-    hair.add(decimate(buildBow(BOW_SCALE), 1000), { matrix: headT.clone().multiply(bowMatrix(side)), bone: B.head });
+    hair.add(decimate(buildPigtail(side), 1100), { p: HEAD_C, bone: chainWeights(joints, bones, 0.8) });
+    hair.add(decimate(buildBow(BOW_SCALE), 650), { matrix: headT.clone().multiply(bowMatrix(side)), bone: B.head });
     hair.add(buildRibbons(side), { p: HEAD_C, bone: B.head });
   }
   time('pigtails', t);
 
   // --- Dress --------------------------------------------------------------
   t = performance.now();
-  dress.add(decimate(buildBodice(), 1800), { bone: B.spine });
+  dress.add(decimate(buildBodice(), 1400), { bone: B.spine });
   for (const side of [-1, 1]) {
     const sh = side < 0 ? B.shoulderL : B.shoulderR;
     dress.add(decimate(buildSleeve(side), 600), { bone: sh });
@@ -174,7 +174,7 @@ export function buildPrincessGeometries(): PrincessGeometries {
   for (const j of crownJewels()) {
     jewels.add(j.geometry, { matrix: crownM.clone().multiply(j.matrix), bone: B.head, color: j.color });
   }
-  const pearl = new THREE.SphereGeometry(1, 8, 6);
+  const pearl = new THREE.SphereGeometry(1, 7, 4);
   const { pearls, pendant } = necklacePoints();
   for (const p of pearls) jewels.add(pearl, { p, s: 0.0088, bone: B.spine, color: PAL.pearl });
   const heart = extrude(heartShape(1), 0.3, 0.12, 2, 7);

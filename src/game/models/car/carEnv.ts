@@ -3,7 +3,8 @@ import { PAL } from '../kit/palette';
 import { SUN_DIR } from '../../view/Lighting';
 import { LOOK_NOW } from '../../view/look';
 
-let envTexture: THREE.DataTexture | null = null;
+/** One studio per look, built the first time that look is needed. */
+const studios = new Map<string, THREE.DataTexture>();
 let users = 0;
 
 function smooth(a: number, b: number, x: number): number {
@@ -26,7 +27,13 @@ function ridge(phi: number): number {
  */
 export function acquireCarEnvironment(): THREE.Texture {
   users += 1;
-  if (envTexture) return envTexture;
+  return carEnvironmentNow();
+}
+
+/** The studio for the current look (no new reference: the car already holds one). */
+export function carEnvironmentNow(): THREE.Texture {
+  const built = studios.get(LOOK_NOW.name);
+  if (built) return built;
   const W = 512;
   const H = 256;
   const data = new Float32Array(W * H * 4);
@@ -84,20 +91,20 @@ export function acquireCarEnvironment(): THREE.Texture {
       data[o + 3] = 1;
     }
   }
-  envTexture = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.FloatType);
-  envTexture.mapping = THREE.EquirectangularReflectionMapping;
-  envTexture.colorSpace = THREE.LinearSRGBColorSpace;
-  envTexture.magFilter = THREE.LinearFilter;
-  envTexture.minFilter = THREE.LinearFilter;
-  envTexture.generateMipmaps = false;
-  envTexture.needsUpdate = true;
-  return envTexture;
+  const studio = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.FloatType);
+  studio.mapping = THREE.EquirectangularReflectionMapping;
+  studio.colorSpace = THREE.LinearSRGBColorSpace;
+  studio.magFilter = THREE.LinearFilter;
+  studio.minFilter = THREE.LinearFilter;
+  studio.generateMipmaps = false;
+  studio.needsUpdate = true;
+  studios.set(LOOK_NOW.name, studio);
+  return studio;
 }
 
 export function releaseCarEnvironment(): void {
   users = Math.max(0, users - 1);
-  if (users === 0 && envTexture) {
-    envTexture.dispose();
-    envTexture = null;
-  }
+  if (users > 0) return;
+  for (const studio of studios.values()) studio.dispose();
+  studios.clear();
 }

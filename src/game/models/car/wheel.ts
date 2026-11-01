@@ -35,7 +35,7 @@ function sampler(control: Array<[number, number]>): (t0: number, t1: number, n: 
 function heartDisc(radius: number, ring: number, size: number, count: number): THREE.Shape {
   const disc = new THREE.Shape();
   disc.absarc(0, 0, radius, 0, Math.PI * 2, false);
-  const outline = heartShape(size).getPoints(7);
+  const outline = heartShape(size).getPoints(5);
   const box = new THREE.Box2().setFromPoints(outline);
   const mid = box.getCenter(new THREE.Vector2());
   for (let i = 0; i < count; i += 1) {
@@ -62,8 +62,9 @@ export interface WheelBuild {
  * Chunky balloon toy tire: dark plum rubber with big tread blocks, a cream whitewall
  * and a chrome wheel with five heart windows over a painted dish, so the spin reads.
  * Axle along +X, the pretty face at +X. Radius CAR.wheelR, centered at the origin.
+ * A `covered` wheel (the spare) leaves out what its cover hides.
  */
-export function buildWheelGeometry(segments = 32): WheelBuild {
+export function buildWheelGeometry(segments = 26, covered = false): WheelBuild {
   const R = CAR.wheelR;
   const hw = CAR.wheelW / 2;
   const asm = new Assembler();
@@ -86,7 +87,7 @@ export function buildWheelGeometry(segments = 32): WheelBuild {
   // Whitewall band on the outer sidewall (crisp edges: separate strips).
   const tWallA = 0.765;
   const tWallB = 0.945;
-  asm.add(revolveX(tire(0, tWallA, 15), segments), tireColor, PBR.tire);
+  asm.add(revolveX(tire(0, tWallA, 11), segments), tireColor, PBR.tire);
   asm.add(revolveX(tire(tWallA, tWallB, 4), segments), PAL.whitewall, PBR.whitewall);
   asm.add(revolveX(tire(tWallB, 1, 2), segments), tireColor, PBR.tire);
 
@@ -102,8 +103,13 @@ export function buildWheelGeometry(segments = 32): WheelBuild {
   // Inner closing disc (hidden side).
   asm.add(revolveX([[-hw * 0.7, 0.001], [-hw * 0.74, R * 0.6]], 12), '#2f2138', PBR.tire);
 
-  // Chrome rim lip, then the painted dish seen through the hearts.
   const a0 = hw * 0.74;
+  if (covered) {
+    const { geometry, recolor } = asm.build();
+    return { geometry, recolor };
+  }
+
+  // Chrome rim lip, then the painted dish seen through the hearts.
   asm.add(
     revolveX(
       [
@@ -133,7 +139,7 @@ export function buildWheelGeometry(segments = 32): WheelBuild {
   );
 
   // Chrome disc with five heart windows.
-  const disc = extrude(heartDisc(R * 0.525, R * 0.31, R * 0.27, 5), 0.012, 0.005, 1, 18);
+  const disc = extrude(heartDisc(R * 0.525, R * 0.31, R * 0.27, 5), 0.012, 0.005, 1, 10);
   asm.add(disc, PAL.chrome, PBR.chrome, { p: [a0 - 0.026, 0, 0], r: [0, Math.PI / 2, 0] });
 
   // Gold hub with a raised pink star.

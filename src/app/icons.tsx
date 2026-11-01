@@ -37,6 +37,50 @@ export function AreaIcon({ area }: { area: Area }) {
   return <CrownIcon />;
 }
 
+/** The time of day of a level: sun, low sun, or moon and stars. */
+export function TimeIcon({ look }: { look: string }) {
+  if (look === 'dusk') {
+    return (
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M44 50A23 23 0 1 1 33 8a19 19 0 0 0 11 42z" fill="#ffe28a" />
+        <circle cx="49" cy="17" r="4" fill="#fff6d0" />
+        <circle cx="55" cy="33" r="2.600" fill="#fff6d0" />
+      </svg>
+    );
+  }
+  if (look === 'golden') {
+    return (
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M12 42a20 20 0 0 1 40 0z" fill="#ffae3d" />
+        <path d="M4 42h56" stroke="#ff7fa6" stroke-width="6" stroke-linecap="round" />
+        {[-52, -26, 0, 26, 52].map((a) => (
+          <path key={a} d="M32 16V8" stroke="#ffc64d" stroke-width="5" stroke-linecap="round" transform={`rotate(${a} 32 42)`} />
+        ))}
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
+        <path key={a} d="M32 9v7" stroke="#ffc64d" stroke-width="5" stroke-linecap="round" transform={`rotate(${a} 32 32)`} />
+      ))}
+      <circle cx="32" cy="32" r="14" fill="#ffd84d" />
+    </svg>
+  );
+}
+
+/** A folded map with a dotted road and a heart. */
+export function MapIcon() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M6 15l17-6 18 6 17-6v40l-17 6-18-6-17 6z" fill="#c9f0c4" stroke="#fff" stroke-width="4" stroke-linejoin="round" />
+      <path d="M23 9v40M41 15v40" stroke="#9fdca2" stroke-width="3" />
+      <path d="M13 44c6-3 7-10 14-12s10 4 17-3" fill="none" stroke="#ff6aa9" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 7" />
+      <path d="M48 26c-5-4-8-6.500-8-10a4.500 4.500 0 0 1 8-2.800 4.500 4.500 0 0 1 8 2.800c0 3.500-3 6-8 10z" fill="#ff4f9e" />
+    </svg>
+  );
+}
+
 export function PlayIcon() {
   return (
     <svg viewBox="0 0 64 64" aria-hidden="true">

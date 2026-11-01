@@ -160,10 +160,10 @@ export function hullField(): HullParts {
   // A crowned hood, so the fenders and hood read as one clean surface with no dent between them.
   const hood = move(ellipsoid(0.56, 0.14, 0.74), 0, 0.72, -0.84);
   // Tail fins: the car's signature from the chase camera.
-  const fin = mirrorX(move(rotate(ellipsoid(0.075, 0.2, 0.64), 0.2, 0, 0), 0.63, 0.81, 1.02));
+  const fin = mirrorX(move(rotate(ellipsoid(0.115, 0.17, 0.66), 0.2, 0, 0), 0.62, 0.82, 1.04));
   let body: SdfNode = blend(0.2, body0, fenderF, fenderR, hood);
   body = blend(0.08, body, pods);
-  body = blend(0.09, body, fin);
+  body = blend(0.15, body, fin);
   // Scooped side panels.
   const cove = mirrorX(move(ellipsoid(COVE.rx, COVE.ry, COVE.rz), COVE.x, COVE.y, COVE.z));
   body = subtract(body, cove, 0.05);
@@ -200,7 +200,7 @@ export function buildHull(cell = 0.03): HullBuild {
   });
   fine.deleteAttribute('wind');
   // Meshed finely for the crisp edges, then reduced: normals come from the field, so the paint stays smooth.
-  const geometry = decimate(fine, 22000);
+  const geometry = decimate(fine, 16000);
   const pos = geometry.attributes.position.array as Float32Array;
   const nor = geometry.attributes.normal.array as Float32Array;
   const n = pos.length / 3;

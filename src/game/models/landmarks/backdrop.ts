@@ -191,7 +191,10 @@ function treeGeometry(): THREE.BufferGeometry {
   const trunk = new PartBuilder();
   trunk.add(cyl(0.12, 0.2, 1.3, 5, true), PAL.trunk, { p: [0, 0.65, 0] });
   const crown = new PartBuilder();
-  crown.add(new THREE.IcosahedronGeometry(1, 1), PAL.leaf, { p: [0, 1.8, 0], s: [0.95, 0.88, 0.95] });
+  // Far off on the hills: twenty faces with round normals read as a soft ball.
+  const ball = new THREE.IcosahedronGeometry(1, 0);
+  (ball.attributes.normal as THREE.BufferAttribute).copy(ball.attributes.position as THREE.BufferAttribute);
+  crown.add(ball, PAL.leaf, { p: [0, 1.8, 0], s: [0.95, 0.88, 0.95] });
   const tg = trunk.build()!;
   const cg = crown.build()!;
   tg.setAttribute('kind', new THREE.Float32BufferAttribute(new Float32Array(tg.attributes.position.count).fill(0), 1));
@@ -416,6 +419,12 @@ export function createBackdrop(): Backdrop & { distantCastle: THREE.Object3D } {
     distantCastle: castle,
     update(camera: THREE.Camera) {
       sync(camera);
+    },
+    applyLook() {
+      shared.uSun.value.copy(SUN_DIR).normalize();
+      shared.uHazeCol0.value = hazeColor(LAYERS[0].hazeMix);
+      shared.uHazeCol1.value = hazeColor(LAYERS[1].hazeMix);
+      shared.uHazeCol2.value = hazeColor(LAYERS[2].hazeMix);
     },
     dispose() {
       hillGeo.dispose();

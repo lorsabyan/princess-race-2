@@ -17,7 +17,7 @@ const BEHIND = 12;
 const GROWTH: Record<Area, { from: number; to: number; tufts: number; size: number }> = {
   town: { from: 6.45, to: 15, tufts: 1900, size: 0.72 },
   meadow: { from: 4.76, to: 22, tufts: 5200, size: 1 },
-  forest: { from: 4.76, to: 18, tufts: 4500, size: 1.25 },
+  forest: { from: 4.76, to: 18, tufts: 5000, size: 0.92 },
   lake: { from: 4.76, to: 15, tufts: 1900, size: 0.95 },
   castle: { from: 6.45, to: 18, tufts: 2700, size: 0.68 },
 };

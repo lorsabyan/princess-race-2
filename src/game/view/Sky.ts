@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PAL } from '../models/kit/palette';
 import { blend, ellipsoid, move, planeBelow, sphere, subtract, type SdfNode } from '../models/kit/sdf';
+import { decimate } from '../models/kit/decimate';
 import { meshSdf } from '../models/kit/mesher';
 import { noiseTexture } from '../models/kit/noise';
 import { LOOK_NOW } from './look';
@@ -25,6 +26,7 @@ uniform vec3 uGlowDir;
 uniform float uSunDisc;
 uniform sampler2D uNoise;
 uniform vec2 uDrift;
+uniform float uStars;
 varying vec3 vDir;
 void main() {
   vec3 d = normalize( vDir );
@@ -36,6 +38,16 @@ void main() {
     vec2 p = d.xz / ( h + 0.16 );
     float wisps = texture2D( uNoise, p * vec2( 0.03, 0.085 ) + uDrift ).r * 0.66 + texture2D( uNoise, p * vec2( 0.085, 0.19 ) - uDrift * 1.7 ).a * 0.5;
     col = mix( col, vec3( 1.0 ), smoothstep( 0.54, 0.86, wisps ) * smoothstep( 0.03, 0.2, h ) * 0.46 );
+  }
+  // First stars of the evening: one dot in some cells of a grid laid over the sky.
+  if ( uStars > 0.0 && h > 0.06 ) {
+    vec2 q = d.xz / ( h + 0.4 ) * 34.0;
+    vec2 cell = floor( q );
+    float r = fract( sin( dot( cell, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
+    vec2 at = vec2( fract( r * 7.13 ), fract( r * 13.7 ) ) * 0.6 + 0.2;
+    float dot1 = 1.0 - smoothstep( 0.03, 0.09 + r * 0.05, length( fract( q ) - at ) );
+    float twinkle = 0.7 + 0.3 * sin( uDrift.x * 1500.0 + r * 40.0 );
+    col += vec3( 1.0, 0.95, 0.86 ) * dot1 * step( 0.7, r ) * twinkle * uStars * smoothstep( 0.1, 0.5, h );
   }
   col = mix( col, uGround, smoothstep( -0.01, -0.16, h ) );
   // Warm glow band toward the far end of the road.
@@ -57,16 +69,24 @@ function color(hex: string): THREE.Color {
   return new THREE.Color(hex);
 }
 
+/** Sky uniforms that come from the look. */
+function lookUniforms(): Record<string, THREE.Color | number> {
+  return {
+    uTop: color(LOOK_NOW.sky.top),
+    uMid: color(LOOK_NOW.sky.mid),
+    uHorizon: color(LOOK_NOW.sky.horizon),
+    uGround: color(LOOK_NOW.sky.ground),
+    uSunColor: color(LOOK_NOW.sky.glow),
+    uStars: LOOK_NOW.lights > 0.5 ? LOOK_NOW.lights : 0,
+  };
+}
+
 export function createSkyMaterial(sunDir: THREE.Vector3, sunDisc = 1): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,
     uniforms: {
-      uTop: { value: color(LOOK_NOW.sky.top) },
-      uMid: { value: color(LOOK_NOW.sky.mid) },
-      uHorizon: { value: color(LOOK_NOW.sky.horizon) },
-      uGround: { value: color(LOOK_NOW.sky.ground) },
-      uSunColor: { value: color(LOOK_NOW.sky.glow) },
+      ...Object.fromEntries(Object.entries(lookUniforms()).map(([name, value]) => [name, { value }])),
       uSunDir: { value: sunDir.clone().normalize() },
       uGlowDir: { value: new THREE.Vector3(0, 0, -1) },
       uSunDisc: { value: sunDisc },
@@ -114,6 +134,8 @@ void main() {
 }
 `;
 
+const CLOUD_TRIANGLES = 640;
+
 /** One fluffy cloud: billowing spheres on a soft flat base. */
 function cloudField(seed: number): SdfNode {
   let s = seed * 9301 + 49297;
@@ -137,13 +159,15 @@ function cloudField(seed: number): SdfNode {
 }
 
 export function createCloudGeometry(seed: number): THREE.BufferGeometry {
-  return meshSdf(cloudField(seed), {
+  const cloud = meshSdf(cloudField(seed), {
     min: [-19, -1.5, -11],
     max: [19, 13, 11],
     cell: 1.05,
     project: 2,
     colors: { 0: '#ffffff' },
   });
+  // Normals come from the field, so a cloud stays just as soft with far fewer triangles.
+  return decimate(cloud, CLOUD_TRIANGLES);
 }
 
 /**
@@ -160,6 +184,7 @@ export class Sky {
   private readonly span = 550;
   private readonly matrix = new THREE.Matrix4();
   private readonly spot = new THREE.Vector3();
+  private readonly cloudMaterial: THREE.ShaderMaterial;
 
   constructor(opts: SkyOptions) {
     this.sunDir = opts.sunDir.clone().normalize();
@@ -168,7 +193,7 @@ export class Sky {
     this.dome.frustumCulled = false;
     this.group.add(this.dome);
 
-    const cloudMat = new THREE.ShaderMaterial({
+    const cloudMat = (this.cloudMaterial = new THREE.ShaderMaterial({
       vertexShader: CLOUD_VERT,
       fragmentShader: CLOUD_FRAG,
       uniforms: {
@@ -180,7 +205,7 @@ export class Sky {
       transparent: true,
       depthWrite: false,
       fog: false,
-    });
+    }));
     const shapes = 3;
     const rows = 14;
     for (let i = 0; i < shapes; i += 1) {
@@ -207,6 +232,18 @@ export class Sky {
       });
     }
     this.group.add(this.clouds);
+  }
+
+  /** Take on the current look. */
+  applyLook(sunDir: THREE.Vector3): void {
+    this.sunDir.copy(sunDir).normalize();
+    const dome = (this.dome.material as THREE.ShaderMaterial).uniforms;
+    for (const [name, value] of Object.entries(lookUniforms())) dome[name].value = value;
+    dome.uSunDir.value.copy(this.sunDir);
+    const cloud = this.cloudMaterial.uniforms;
+    cloud.uLit.value.set(LOOK_NOW.cloud.lit);
+    cloud.uShade.value.set(LOOK_NOW.cloud.shade);
+    cloud.uHaze.value.set(LOOK_NOW.sky.horizon);
   }
 
   /** Keep the dome centered on the camera; clouds approach slowly (parallax). */

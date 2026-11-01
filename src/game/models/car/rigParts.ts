@@ -59,8 +59,8 @@ export function createPennant(material: THREE.Material, outward = -0.5): Pennant
   const flagLen = 0.36;
   const flagHalf = 0.095;
   const attachY = L - 0.125;
-  const NS = 36;
-  const NT = 18;
+  const NS = 20;
+  const NT = 8;
   const a = new Assembler();
   // Base grommet + whip rod (many height segments so it can bend) + gold ball.
   a.add(sphere(0.03, 16, 8), PAL.chrome, PBR.chrome, { s: [1, 0.45, 1] });

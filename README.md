@@ -55,6 +55,14 @@ npm run test:e2e     # browser play-through on desktop, Android phone and tablet
 
 Useful URL flags: `?debug` (fps / draw calls), `?q=high|medium|low` (quality), `?level=3`, `?autoplay`, `?bot` (auto-drive), `?at=500` (start 500 m in), `?freeze=8` (stop time at 8 s for screenshots), `?cam=sky|hero|side` (showcase cameras), `?look=sunny|golden|dusk` (light and color).
 
+## Progress
+
+Coins from finished levels go in a wallet that buys car paints (`src/game/sim/garage.ts`): a gold
+ring around each paint fills as coins come in, and nothing bought can be lost. The map on the title
+screen replays any level reached so far. The day turns as the levels go by: two sunny mornings, a
+golden afternoon, then dusk with lit windows, stars and headlights (`lookForLevel` in
+`src/game/view/look.ts`).
+
 ## How the road works
 
 The simulation stays straight: the car has a sideways `x` and a distance `s` along the road, so the rules and their tests never see a curve. `src/game/sim/track.ts` maps that onto a real 3D road, and `src/game/view/warp.ts` bends every finished chunk onto it once, at level load, so all the street art carries over and geometry, normals and shadows are plain world-space data. See [`3d-stack.md`](3d-stack.md) for the stack and look decisions.

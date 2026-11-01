@@ -322,6 +322,9 @@ export function createPrincess(): PrincessRigExt {
   addMesh('dress', geos.geometry.dress, mats.dress);
   addMesh('crownGold', geos.geometry.gold, mats.gold);
   addMesh('jewels', geos.geometry.jewels, mats.jewels);
+  // Too small to show in the sun's soft shadow: two fewer draw calls.
+  meshes.crownGold.castShadow = false;
+  meshes.jewels.castShadow = false;
   const zoneOf: Record<string, keyof typeof geos.ranges> = {
     skin: 'skin',
     hair: 'hair',

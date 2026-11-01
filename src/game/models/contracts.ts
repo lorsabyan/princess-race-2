@@ -19,6 +19,8 @@ export interface CarRig {
   steeringWheel: THREE.Object3D;
   update(dt: number, state: CarState): void;
   setPaint(color: THREE.ColorRepresentation): void;
+  /** Take on the current look: reflections, and headlights after dark. */
+  applyLook?(): void;
   dispose(): void;
 }
 
@@ -99,6 +101,8 @@ export type ScenicKind = 'windmill' | 'balloon' | 'sailboat' | 'swan' | 'lightho
 export interface Backdrop {
   group: THREE.Group;
   update(camera: THREE.Camera): void;
+  /** Take on the current look. */
+  applyLook?(): void;
   dispose(): void;
 }
 

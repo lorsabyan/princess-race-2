@@ -287,6 +287,13 @@ export class Air {
     this.tintB.set(AIR.town.b);
   }
 
+  /** Take on the current look. */
+  applyLook(sunDir: THREE.Vector3): void {
+    const shafts = this.shafts.material.uniforms;
+    shafts.uSunDir.value.copy(sunDir).normalize();
+    shafts.uTint.value.set(LOOK_NOW.sky.glow);
+  }
+
   /** Center the air ahead of the car and ease toward what floats in this area. */
   update(dt: number, carPos: THREE.Vector3, heading: number, area: Area, tier: QualityTier): void {
     this.center.set(carPos.x + Math.sin(heading) * 13, carPos.y + 3.4, carPos.z - Math.cos(heading) * 13);

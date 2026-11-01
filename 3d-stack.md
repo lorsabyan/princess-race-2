@@ -10,11 +10,17 @@ Decisions for this build. Keep it short and current so later sessions stay consi
 - **Assets:** procedural only (no network calls after load, no generation keys, works offline).
 - **Targets:** phones, budget Android tablets, desktop. A 5-year-old plays it. No fail state, no reading.
 - **Perf budget:** desktop/mobile 60/30 fps, under 150/80 draw calls, under 1M/300k visible triangles.
-  Measured on a Mac before the car and princess rebuild, at five stops, shadow pass included: high
-  103-130 draw calls and 680-935k triangles, medium 106-127 and 600-815k, low 85-101 and 440-710k
-  (the town is the top of each range). The rebuild added about 13k car triangles, so the top of the
-  high range is now about 950k. The mobile budget is still exceeded; phones rely on the quality
-  tiers stepping down. `main` was not measured, and neither was a real phone.
+  Measured on a Mac at five stops, shadow pass included: high 104-131 draw calls and 570-715k
+  triangles, medium 107-124 and 460-525k, low 78-94 and 280-485k. The mobile budget is still
+  exceeded at most stops; phones rely on the quality tiers. `tier.ts` starts old phones on low.
+  Neither `main` nor a real phone was measured.
+- **Comparing frame rates:** only as an A/B of two production builds, alternating, in one sitting.
+  The same build moved by 40% between sittings, and hiding the car or princess changed nothing
+  measurable. On a phone-sized screen with the CPU slowed 4x, the tier and scenery work took medium
+  from 175 to 220 fps and low from 202 to 266 at the forest stop, with 31% fewer triangles.
+- **Static scenery is frozen:** `freeze` in `WorldView` turns off matrix updates for chunks, terrain
+  and far scenery, and for their parents, up to the scene. A parent that updates forces all its
+  children to, so one unfrozen parent undoes it. Anything that moves must stay outside these groups.
 
 ## Decisions from the interview
 
@@ -64,6 +70,18 @@ Decisions for this build. Keep it short and current so later sessions stay consi
 - Skin keeps its shade rosy (no green bounce from the grass) and warms up where the shadow begins.
 - `HERO_SHADOW_VERTEX`: the shadow map is coarse next to the heroes, so they use a bigger normal
   bias than the world. Without it they speckle themselves.
+
+## Time of day
+
+- `lookForLevel` runs the day over the levels: sunny, sunny, golden, dusk, then a new day. `?look=name`
+  still holds one look for every level.
+- `LOOK_NOW` is one object changed in place by `chooseLook`, which also moves `SUN_DIR`. Anything
+  built per level (terrain, water, grass) just reads it. Anything that outlives a level has an
+  `applyLook()`: lighting, sky, stage, air, backdrop, car. A new long-lived look reader needs one too.
+- `LOOK_NOW.lights` is how far evening has come: windows (one shared glass material), stars,
+  headlights and fireflies follow it.
+- Reflections are cached per look, in `Game.skyLight` and in `carEnv.ts`. Coins keep one sunny
+  reflection map at every time of day, and the distant castle keeps its sunny baked colors.
 
 ## Look rubric (score 0-2 each, phone counts as much as desktop)
 

@@ -1,8 +1,14 @@
 import * as THREE from 'three';
-import { LOOK_NOW } from './look';
+import { LOOK_NOW, setLook } from './look';
 
 /** Direction *toward* the sun. */
 export const SUN_DIR = new THREE.Vector3(...LOOK_NOW.sunDir).normalize();
+
+/** Switch the look and the sun with it. */
+export function chooseLook(name: string): void {
+  setLook(name);
+  SUN_DIR.set(...LOOK_NOW.sunDir).normalize();
+}
 
 /**
  * Key + fill lighting. The sun casts soft PCF shadows inside a box that follows
@@ -45,6 +51,18 @@ export class Lighting {
     this.rim.position.set(3, 4, -8);
     scene.add(this.rim);
     scene.add(this.rim.target);
+  }
+
+  /** Take on the current look's light. */
+  applyLook(): void {
+    this.hemi.color.set(LOOK_NOW.hemi.sky);
+    this.hemi.groundColor.set(LOOK_NOW.hemi.ground);
+    this.hemi.intensity = LOOK_NOW.hemi.intensity;
+    this.sun.color.set(LOOK_NOW.sun.color);
+    this.sun.intensity = LOOK_NOW.sun.intensity;
+    this.sun.shadow.intensity = LOOK_NOW.sun.shadow;
+    this.rim.color.set(LOOK_NOW.rim.color);
+    this.rim.intensity = LOOK_NOW.rim.intensity;
   }
 
   /** Center the shadow box on `focus` (a point just ahead of the car), snapped to texel size. */

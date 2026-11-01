@@ -74,8 +74,8 @@ function fullCrown(): THREE.BufferGeometry {
 }
 
 /** One lumpy ball, for trees further off: a rough outline over shading as smooth as a ball. */
-function plainCrown(): THREE.BufferGeometry {
-  const crown = new THREE.IcosahedronGeometry(1, 1);
+function plainCrown(detail = 1): THREE.BufferGeometry {
+  const crown = new THREE.IcosahedronGeometry(1, detail);
   const shape = crown.attributes.position;
   const round = crown.attributes.normal;
   for (let i = 0; i < shape.count; i += 1) {
@@ -100,7 +100,7 @@ const palette: Record<Area, THREE.Color[]> = {
 };
 
 /** How far ahead along the road distant trees are drawn. */
-const TREE_AHEAD: Record<QualityTier, number> = { high: 430, medium: 340, low: 240 };
+const TREE_AHEAD: Record<QualityTier, number> = { high: 430, medium: 300, low: 210 };
 /** Trees nearer the road than this have soft crowns while they are ahead by less than the tier's reach. */
 const CLOSE_TREE = 84;
 const FULL_CROWN: Record<QualityTier, number> = { high: 240, medium: 0, low: 0 };
@@ -124,6 +124,8 @@ export class Terrain {
   private readonly toneA = new THREE.Color();
   private readonly toneB = new THREE.Color();
   private readonly soft = treeGeometry(fullCrown());
+  /** A third of the triangles, for trees well back from the road on phones. */
+  private readonly tiny = treeGeometry(plainCrown(0));
   private readonly plain = treeGeometry(plainCrown());
 
   constructor(
@@ -274,7 +276,7 @@ export class Terrain {
     const keep = Math.min(1, MAX_TREES / Math.max(1, sites.length));
     const trees = sites.filter(() => rng() < keep);
     trees.sort((a, b) => a.block - b.block || Number(a.close) - Number(b.close));
-    this.geometries.push(this.soft, this.plain);
+    this.geometries.push(this.soft, this.plain, this.tiny);
     const mat = treeMaterial();
     this.materials.push(mat);
     const matrix = new THREE.Matrix4();
@@ -316,7 +318,8 @@ export class Terrain {
     for (const mesh of this.instanced) {
       const from = mesh.userData.from as number;
       mesh.visible = from + TREE_BLOCK > s - lookBehind && from < s + ahead;
-      mesh.geometry = mesh.userData.close && from < s + FULL_CROWN[tier] ? this.soft : this.plain;
+      if (mesh.userData.close) mesh.geometry = from < s + FULL_CROWN[tier] ? this.soft : this.plain;
+      else mesh.geometry = tier === 'high' ? this.plain : this.tiny;
     }
   }
 

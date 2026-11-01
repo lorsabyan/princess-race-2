@@ -15,19 +15,29 @@ import { Water } from './Water';
 import { warpChunk, type RoadWorld } from './warp';
 
 /** Full-detail chunks stop at `near`; further scenery is cheap stand-ins and the land itself, out to `far`. */
-const VIEW: Record<QualityTier, { near: number; far: number; shadow: number; castle: number; scenic: number }> = {
-  high: { near: 125, far: 440, shadow: 52, castle: 420, scenic: 1 },
-  medium: { near: 110, far: 400, shadow: 46, castle: 330, scenic: 0.85 },
-  low: { near: 88, far: 320, shadow: 36, castle: 240, scenic: 0.65 },
+const VIEW: Record<QualityTier, { near: number; far: number; shadow: number; castle: number; scenic: number; coin: number }> = {
+  high: { near: 125, far: 440, shadow: 52, castle: 420, scenic: 1, coin: 36 },
+  medium: { near: 96, far: 400, shadow: 36, castle: 330, scenic: 0.85, coin: 24 },
+  low: { near: 72, far: 320, shadow: 24, castle: 240, scenic: 0.65, coin: 14 },
 };
 const COIN_AHEAD = 125;
+
+/**
+ * Scenery never moves once it is placed, so three needn't recompute its matrices every frame.
+ * The parents must be frozen too (`Game` and `WorldView` do that): a parent that updates makes all its children update.
+ */
+function freeze(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    o.updateMatrix();
+    o.matrixAutoUpdate = false;
+  });
+}
 const VIEW_BEHIND = 70;
 /** Chunks behind the car cast shadows this far back (the sun's shadow box is ~54 m across). */
 const SHADOW_BEHIND = 26;
 /** Moving scenery stops updating and drawing beyond this (before the tier's scale). */
 const SCENIC_RANGE: Record<ScenicKind, number> = { windmill: 340, balloon: 460, sailboat: 300, swan: 170, lighthouse: 420 };
 /** Coins closer than this cast shadows (the sun's shadow box reaches ~34 m ahead). */
-const SHADOW_COIN_RANGE = 36;
 const PICKUP_TIME = 0.32;
 /** Chunks start behind the car, so the title camera has a street to look up. */
 const FIRST_CHUNK = -3;
@@ -85,6 +95,7 @@ export class WorldView {
     private readonly castle: Landmark,
     readonly road: RoadWorld,
   ) {
+    this.group.matrixAutoUpdate = false;
     const capacity = level.coins.length + 40;
     this.coins = new THREE.InstancedMesh(lib.createCoinGeometry(), lib.coinMaterial(), capacity);
     this.coins.name = 'coins';
@@ -126,6 +137,7 @@ export class WorldView {
   buildLand(sunDir: THREE.Vector3, fog: THREE.Fog): void {
     this.terrain = new Terrain(this.road.land, this.road.track, this.level.seed);
     this.water = new Water(this.road.land, sunDir, fog, this.level.seed);
+    freeze(this.terrain.group);
     this.group.add(this.terrain.group, this.water.group);
     this.plantScenery();
   }
@@ -215,6 +227,7 @@ export class WorldView {
       const chunk = area === 'town' || opts ? this.lib.buildTownChunk(i + 3, this.level.seed, opts) : this.lib.buildCountryChunk(i + 3, this.level.seed, area, { gateway: opens });
       warpChunk(chunk.group, -i * L, this.road);
       chunk.group.visible = false;
+      freeze(chunk.group);
       this.group.add(chunk.group);
       if (chunk.far) warpChunk(chunk.far, -i * L, this.road);
       this.built.push(chunk);
@@ -273,6 +286,7 @@ export class WorldView {
       mesh.name = 'far-scenery';
       mesh.frustumCulled = false;
       mesh.visible = false;
+      freeze(mesh);
       this.group.add(mesh);
       this.farRuns.push({ mesh, starts });
     }
@@ -339,7 +353,7 @@ export class WorldView {
       if (shown) p.rig.update(dt, time);
     }
 
-    this.updateCoins(time, sim, viewZ);
+    this.updateCoins(time, sim, viewZ, view.coin);
   }
 
   private placeObstacle(rig: ObstacleRig, x: number, z: number): void {
@@ -377,7 +391,7 @@ export class WorldView {
     this.group.removeFromParent();
   }
 
-  private updateCoins(time: number, sim: Sim, viewZ: number): void {
+  private updateCoins(time: number, sim: Sim, viewZ: number, fullCoins: number): void {
     let coinCount = 0;
     let farCount = 0;
     let gemCount = 0;
@@ -415,7 +429,7 @@ export class WorldView {
       this.matrix.multiplyMatrices(this.rotation, this.scaleM).setPosition(this.point.x, this.point.y, this.point.z);
       if (c.kind === 'gem') {
         if (gemCount < this.gems.instanceMatrix.count) this.gems.setMatrixAt(gemCount++, this.matrix);
-      } else if (z < viewZ - SHADOW_COIN_RANGE) {
+      } else if (z < viewZ - fullCoins) {
         if (farCount < this.farCoins.instanceMatrix.count) this.farCoins.setMatrixAt(farCount++, this.matrix);
       } else if (coinCount < this.coins.instanceMatrix.count) {
         this.coins.setMatrixAt(coinCount++, this.matrix);

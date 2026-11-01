@@ -1,3 +1,4 @@
+import { decimate } from '../kit/decimate';
 import * as THREE from 'three';
 import { PAL } from '../kit/palette';
 import { blend, displace, ellipsoid, move, roundBox, sphere, type SdfNode } from '../kit/sdf';
@@ -73,11 +74,15 @@ function cachedGeo(key: string, make: () => THREE.BufferGeometry): THREE.BufferG
 /** SDF shapes are meshed once per variant; palettes only recolor a clone. */
 const shapeCache = new Map<string, THREE.BufferGeometry>();
 export const sdfTiming = { ms: 0, count: 0 };
+const SDF_KEEP = 0.6;
+
 function sdfShape(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
   let g = shapeCache.get(key);
   if (!g) {
     const t0 = performance.now();
     g = make();
+    // Normals come from the field, so foliage keeps its soft shape with far fewer triangles.
+    g = decimate(g, Math.round((g.index ? g.index.count / 3 : Infinity) * SDF_KEEP));
     sdfTiming.ms += performance.now() - t0;
     sdfTiming.count += 1;
     shapeCache.set(key, g);

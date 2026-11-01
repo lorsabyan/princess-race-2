@@ -75,8 +75,11 @@ uniform float uDapple;
 uniform float uTime;
 varying vec3 vCw;
 float cwSunlight() {
-  float cloud = texture2D( uNoise, ( vCw.xz + uCloudShift ) * 0.0034 ).r;
-  float sun = 1.0 - uCloudShade * smoothstep( 0.5, 0.7, cloud );
+  float sun = 1.0;
+  if ( uCloudShade > 0.002 ) {
+    float cloud = texture2D( uNoise, ( vCw.xz + uCloudShift ) * 0.0034 ).r;
+    sun -= uCloudShade * smoothstep( 0.5, 0.7, cloud );
+  }
   if ( uDapple > 0.002 ) {
     float a = texture2D( uNoise, vCw.xz * 0.05 + vec2( uTime * 0.0035, 0.0 ) ).g;
     float b = texture2D( uNoise, vCw.xz * 0.029 - vec2( 0.0, uTime * 0.0024 ) ).g;
@@ -172,6 +175,7 @@ type MatKey =
   | 'foliage';
 
 const cache = new Map<MatKey, THREE.Material>();
+const WINDOW_LIT = new THREE.Color('#ffc66e');
 
 /**
  * Shared material roles for vertex-colored geometry. Everything in a street
@@ -226,6 +230,13 @@ export function mat(key: MatKey): THREE.Material {
   m.name = key;
   cache.set(key, m);
   return m;
+}
+
+/** After dark the windows light up. Every pane in the world shares this one material. */
+export function setWindowGlow(amount: number): void {
+  const glass = mat('glass') as THREE.MeshStandardMaterial;
+  glass.emissive.set('#7fb8e6').lerp(WINDOW_LIT, amount);
+  glass.emissiveIntensity = 0.12 + 1.5 * amount;
 }
 
 /** Create a mesh from a vertex-colored geometry with a shared material role. */

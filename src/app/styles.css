@@ -274,36 +274,251 @@ body {
   margin-top: auto;
 }
 
-.level-dots {
+.title-wallet {
   position: absolute;
+  top: calc(var(--gutter) + var(--safe-top));
+  left: calc(var(--gutter) + var(--safe-left));
+}
+
+/* Paint pots */
+
+.paint-row {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--gutter) + var(--safe-left));
+  display: grid;
+  gap: 16px;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+.swatch {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--gold) var(--saved), rgba(255, 255, 255, 0.82) 0);
+  box-shadow: 0 5px 12px var(--shadow);
+  cursor: pointer;
+  transition: transform 140ms ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.swatch::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0) 42%), var(--paint);
+}
+
+.swatch.locked::before {
+  opacity: 0.62;
+  filter: saturate(0.7);
+}
+
+.swatch.on {
+  background: #fff;
+  transform: scale(1.16);
+  box-shadow: 0 0 0 3px var(--pink), 0 6px 14px var(--shadow);
+}
+
+.swatch-price {
+  position: absolute;
+  bottom: -7px;
   left: 50%;
-  bottom: calc(var(--safe-bottom) + 12px);
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 7px 0 2px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 5px var(--shadow);
+  color: #b4246e;
+  font: 800 14px/1 var(--font, inherit);
   transform: translateX(-50%);
 }
 
-.level-dot {
+.swatch-price svg {
+  width: 18px;
+  height: 18px;
+}
+
+.swatch.wiggle {
+  animation: wiggle 420ms ease-in-out;
+}
+
+@keyframes wiggle {
+  0%,
+  100% {
+    rotate: 0deg;
+  }
+  25% {
+    rotate: -9deg;
+  }
+  75% {
+    rotate: 9deg;
+  }
+}
+
+/* The map of levels */
+
+.corner-bl {
+  left: calc(var(--gutter) + var(--safe-left));
+  bottom: calc(var(--gutter) + var(--safe-bottom));
+}
+
+.level-map {
+  background:
+    radial-gradient(70% 34% at 18% 100%, #8fdc95 0 70%, rgba(143, 220, 149, 0) 71%),
+    radial-gradient(80% 40% at 82% 104%, #a8e79f 0 70%, rgba(168, 231, 159, 0) 71%),
+    radial-gradient(60% 30% at 50% 66%, #bcefb0 0 70%, rgba(188, 239, 176, 0) 71%),
+    linear-gradient(180deg, #8fcbff 0%, #cbe8ff 34%, #ffe7d6 52%, #c9f0bc 53%, #a8e79f 100%);
+  pointer-events: auto;
+  animation: fadeIn 200ms ease-out;
+}
+
+.map-road {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.map-road path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-road-edge {
+  stroke: #fff;
+  stroke-width: 40px;
+}
+
+.map-road-top {
+  stroke: #f7a9c9;
+  stroke-width: 28px;
+}
+
+.map-stop {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -50%);
+}
+
+.map-node {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 84px;
+  height: 84px;
+  padding: 0;
+  border: 5px solid #fff;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.6);
-  box-shadow: 0 2px 6px var(--shadow);
-  font-size: 11px;
-  line-height: 1;
+  background: linear-gradient(180deg, #ff9fc6, #ff5f9f);
+  box-shadow: 0 6px 0 #d43f83, 0 12px 20px var(--shadow);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.map-node.here {
+  background: linear-gradient(180deg, #ffe08a, #ffb32e);
+  box-shadow: 0 6px 0 #d9861a, 0 12px 20px var(--shadow);
+}
+
+.map-node.shut {
+  background: linear-gradient(180deg, #f3eef6, #d8d0e0);
+  box-shadow: 0 6px 0 #b9afc5, 0 10px 16px var(--shadow);
+  cursor: default;
+}
+
+.map-node.shut .map-time {
+  opacity: 0.55;
+  filter: grayscale(0.7);
+}
+
+.map-time {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 38px;
+  height: 38px;
+  padding: 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 7px var(--shadow);
+}
+
+.map-time svg {
+  display: block;
+}
+
+.map-number {
   color: #fff;
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 2px 0 rgba(150, 30, 90, 0.5);
 }
 
-.level-dot.done {
-  background: var(--gold);
+.map-node.shut .map-number {
+  color: #a79bb4;
+  text-shadow: none;
 }
 
-.level-dot.current {
-  transform: scale(1.35);
-  background: var(--pink);
-  box-shadow: 0 0 0 3px #fff, 0 3px 8px var(--shadow);
+.map-castle {
+  position: absolute;
+  bottom: calc(100% + 16px);
+  width: 76px;
+}
+
+.map-car {
+  position: absolute;
+  bottom: 100%;
+  width: 62px;
+  margin-bottom: 8px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.map-stars {
+  position: absolute;
+  top: 100%;
+  display: flex;
+  margin-top: 10px;
+}
+
+.map-stars svg {
+  width: 26px;
+  height: 26px;
+}
+
+.map-close {
+  position: absolute;
+  top: calc(var(--gutter) + var(--safe-top));
+  right: calc(var(--gutter) + var(--safe-right));
+}
+
+.map-turn {
+  position: absolute;
+  top: calc(var(--gutter) + var(--safe-top));
+}
+
+.map-back {
+  left: calc(var(--gutter) + var(--safe-left));
+}
+
+.map-back .round-btn-icon {
+  transform: scaleX(-1);
+}
+
+.map-on {
+  right: calc(var(--gutter) + var(--safe-right) + 84px);
 }
 
 @keyframes fadeIn {
@@ -628,6 +843,10 @@ body {
   gap: 10px;
 }
 
+.results-coins .swatch {
+  margin-left: 16px;
+}
+
 .results-count {
   font-size: 56px;
   font-weight: 700;
@@ -641,6 +860,39 @@ body {
 }
 
 /* ------------------------------------------------------------------ small / portrait screens */
+
+/* Tall screens: the paints sit in line just above Play, however far down the screen Play falls. */
+@media (orientation: portrait) {
+  .paint-row {
+    position: static;
+    order: 1;
+    grid-auto-flow: column;
+    gap: 9px;
+    margin-top: auto;
+    margin-bottom: 18px;
+    transform: none;
+  }
+  .play-btn {
+    order: 2;
+    margin-top: 0;
+  }
+  .swatch {
+    width: min(50px, 13.5vw);
+    height: min(50px, 13.5vw);
+  }
+}
+
+/* Too short for one column between the wallet and the map button: two side by side. */
+@media (orientation: landscape) and (max-height: 680px) {
+  .paint-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 12px;
+  }
+  .swatch {
+    width: 50px;
+    height: 50px;
+  }
+}
 
 @media (max-width: 640px) {
   .hud-pill {
@@ -703,6 +955,24 @@ body {
   }
   .play-btn {
     --size: 100px !important;
+  }
+  .map-btn {
+    --size: 64px !important;
+  }
+  /* A phone on its side: the card moves to the right so the car and princess stay in view. */
+  .results-overlay {
+    justify-items: end;
+  }
+  .map-node {
+    width: 62px;
+    height: 62px;
+  }
+  .map-number {
+    font-size: 28px;
+  }
+  .map-time {
+    width: 30px;
+    height: 30px;
   }
   .card {
     gap: 14px;

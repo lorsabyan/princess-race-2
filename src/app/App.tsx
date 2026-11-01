@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Game } from '../game/Game';
+import { PAINTS, nextPaint, owns, savedFor, type Paint } from '../game/sim/garage';
+import { lookForLevel } from '../game/view/look';
 import { ui } from './state';
 import {
   CarIcon,
@@ -9,12 +11,14 @@ import {
   HandIcon,
   HomeIcon,
   HornIcon,
+  MapIcon,
   NextIcon,
   PauseIcon,
   PlayIcon,
   ReplayIcon,
   SoundIcon,
   StarIcon,
+  TimeIcon,
   AreaIcon,
 } from './icons';
 
@@ -68,6 +72,12 @@ function Loading() {
 function Title({ game }: Props) {
   return (
     <div class="screen title-screen">
+      <div class="hud-pill coin-pill title-wallet" aria-label={`${ui.garage.value.wallet} coins`}>
+        <span class="coin-icon">
+          <CoinIcon />
+        </span>
+        <span class="coin-count">{ui.garage.value.wallet}</span>
+      </div>
       <div class="logo" aria-label="Princess Race 3">
         <div class="logo-crown">
           <CrownIcon />
@@ -78,27 +88,150 @@ function Title({ game }: Props) {
       <RoundButton label="Play" size={128} className="play-btn pulse" onPress={() => game.play()}>
         <PlayIcon />
       </RoundButton>
+      <PaintRow game={game} />
+      <div class="corner corner-bl">
+        <RoundButton label="Map" size={82} tone="white" className="map-btn" onPress={() => game.openMap(true)}>
+          <MapIcon />
+        </RoundButton>
+      </div>
       <div class="corner corner-br">
         <RoundButton label={ui.muted.value ? 'Sound on' : 'Sound off'} size={58} tone="white" onPress={() => game.toggleMute()}>
           <SoundIcon muted={ui.muted.value} />
         </RoundButton>
       </div>
-      <LevelDots />
+      {ui.mapOpen.value && <LevelMap game={game} />}
     </div>
   );
 }
 
-function LevelDots() {
-  const level = ui.level.value;
-  const best = ui.bestStars.value;
-  const count = Math.max(5, level + 1);
+/** One round paint pot. A paint not bought yet wears a gold ring that fills as coins come in. */
+function Swatch({ game, paint, wallet }: Props & { paint: Paint; wallet?: number }) {
+  const garage = ui.garage.value;
+  const nudge = ui.paintNudge.value;
+  const have = owns(garage, paint.id);
+  const saved = savedFor(wallet === undefined ? garage : { ...garage, wallet }, paint);
+  const nudged = nudge?.id === paint.id;
+  const state = have ? (garage.paint === paint.id ? 'on' : '') : saved >= 1 ? 'ready pulse' : 'locked';
   return (
-    <div class="level-dots" aria-hidden="true">
-      {Array.from({ length: Math.min(count, 10) }, (_, i) => i + 1).map((n) => (
-        <span key={n} class={`level-dot ${n === level ? 'current' : ''} ${best[n] ? 'done' : ''}`}>
-          {best[n] ? '★' : ''}
+    <button
+      // A new key restarts the wiggle when she taps again.
+      key={nudged ? nudge.at : 0}
+      type="button"
+      aria-label={`Paint ${paint.id}`}
+      class={`swatch ${state} ${nudged ? 'wiggle' : ''}`}
+      style={{ '--paint': paint.color, '--saved': `${Math.round(saved * 360)}deg` }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        game.tapPaint(paint.id);
+      }}
+    >
+      {!have && (
+        <span class="swatch-price">
+          <CoinIcon />
+          {paint.price}
         </span>
+      )}
+    </button>
+  );
+}
+
+function PaintRow({ game }: Props) {
+  return (
+    <div class="paint-row">
+      {PAINTS.map((paint) => (
+        <Swatch key={paint.id} game={game} paint={paint} />
       ))}
+    </div>
+  );
+}
+
+const MAP_PAGE = 8;
+/** Stops along the road, in percent of the map: wide screens run left to right, tall ones bottom to top. */
+const MAP_WIDE: ReadonlyArray<readonly [number, number]> = [[9, 74], [23, 46], [37, 72], [49, 38], [62, 68], [72, 34], [84, 62], [91, 26]];
+const MAP_TALL: ReadonlyArray<readonly [number, number]> = [[22, 90], [70, 80], [30, 68], [72, 56], [28, 44], [70, 33], [30, 22], [68, 12]];
+
+/** A smooth road through the stops: each stop bends a curve between the midpoints around it. */
+function roadThrough(spots: ReadonlyArray<readonly [number, number]>): string {
+  const mid = (a: readonly [number, number], b: readonly [number, number]) => `${(a[0] + b[0]) / 2} ${(a[1] + b[1]) / 2}`;
+  const last = spots[spots.length - 1];
+  let d = `M${spots[0][0]} ${spots[0][1]} L${mid(spots[0], spots[1])}`;
+  for (let i = 1; i < spots.length - 1; i += 1) d += ` Q${spots[i][0]} ${spots[i][1]} ${mid(spots[i], spots[i + 1])}`;
+  return `${d} L${last[0]} ${last[1]}`;
+}
+
+/** The road of levels: tap any level reached so far. Every level shows its time of day and best stars. */
+function LevelMap({ game }: Props) {
+  const level = ui.level.value;
+  const furthest = ui.furthest.value;
+  const best = ui.bestStars.value;
+  const [page, setPage] = useState(Math.floor((level - 1) / MAP_PAGE));
+  const lastPage = Math.floor((furthest - 1) / MAP_PAGE);
+  const spots = window.innerHeight > window.innerWidth ? MAP_TALL : MAP_WIDE;
+  const road = roadThrough(spots);
+  return (
+    <div class="screen level-map">
+      <svg class="map-road" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <path class="map-road-edge" d={road} />
+        <path class="map-road-top" d={road} />
+      </svg>
+      {spots.map(([x, y], i) => {
+        const n = page * MAP_PAGE + i + 1;
+        const open = n <= furthest;
+        const stars = best[n] ?? 0;
+        return (
+          <div key={n} class="map-stop" style={{ left: `${x}%`, top: `${y}%` }}>
+            {i === spots.length - 1 && (
+              <span class="map-castle">
+                <CastleIcon />
+              </span>
+            )}
+            {n === level && (
+              <span class="map-car">
+                <CarIcon />
+              </span>
+            )}
+            <button
+              type="button"
+              aria-label={`Level ${n}`}
+              disabled={!open}
+              class={`map-node ${open ? '' : 'shut'} ${n === level ? 'here' : ''}`}
+              onClick={() => void game.pickLevel(n)}
+            >
+              <span class="map-time">
+                <TimeIcon look={lookForLevel(n)} />
+              </span>
+              <span class="map-number">{n}</span>
+            </button>
+            {stars > 0 && (
+              <span class="map-stars" aria-label={`${stars} stars`}>
+                {[0, 1, 2].slice(0, stars).map((s) => (
+                  <StarIcon key={s} filled />
+                ))}
+              </span>
+            )}
+          </div>
+        );
+      })}
+      <div class="map-close">
+        <RoundButton label="Close map" size={64} tone="white" onPress={() => game.openMap(false)}>
+          <HomeIcon />
+        </RoundButton>
+      </div>
+      {page > 0 && (
+        <div class="map-turn map-back">
+          <RoundButton label="Earlier levels" size={64} tone="white" onPress={() => setPage(page - 1)}>
+            <NextIcon />
+          </RoundButton>
+        </div>
+      )}
+      {page < lastPage && (
+        <div class="map-turn map-on">
+          <RoundButton label="Later levels" size={64} tone="white" onPress={() => setPage(page + 1)}>
+            <NextIcon />
+          </RoundButton>
+        </div>
+      )}
     </div>
   );
 }
@@ -228,6 +361,18 @@ function Results({ game }: Props) {
   const [count, setCount] = useState(0);
   const target = ui.coins.value;
   const started = useRef(false);
+  const chimed = useRef(false);
+  const garage = ui.garage.value;
+  const next = nextPaint(garage);
+  // The ring on the next paint fills as the coins count up.
+  const wallet = garage.wallet - (target - count);
+  const earned = !!next && wallet >= next.price;
+  useEffect(() => {
+    if (earned && !chimed.current) {
+      chimed.current = true;
+      game.audio.star(2);
+    }
+  }, [earned]);
 
   useEffect(() => {
     if (started.current) return;
@@ -270,6 +415,7 @@ function Results({ game }: Props) {
             <CoinIcon />
           </span>
           <span class="results-count">{count}</span>
+          {next && <Swatch key={next.id} game={game} paint={next} wallet={wallet} />}
         </div>
         <div class="card-row">
           <RoundButton label="Home" size={70} tone="white" onPress={() => game.goHome()}>

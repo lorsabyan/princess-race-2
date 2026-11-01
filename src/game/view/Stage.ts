@@ -14,6 +14,7 @@ import {
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 import { LOOK_NOW } from './look';
+import { pickTier } from './tier';
 
 export type QualityTier = 'high' | 'medium' | 'low';
 
@@ -37,8 +38,12 @@ const TIER_ORDER: QualityTier[] = ['high', 'medium', 'low'];
 export function detectTier(): QualityTier {
   const forced = new URLSearchParams(location.search).get('q');
   if (forced === 'high' || forced === 'medium' || forced === 'low') return forced;
-  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-  return coarse ? 'medium' : 'high';
+  const about = navigator as Navigator & { deviceMemory?: number };
+  return pickTier({
+    coarse: window.matchMedia?.('(pointer: coarse)').matches ?? false,
+    memory: about.deviceMemory,
+    cores: about.hardwareConcurrency || undefined,
+  });
 }
 
 export interface StageStats {
@@ -127,6 +132,16 @@ export class Stage {
 
     this.applyTier();
     this.resize();
+  }
+
+  /** Take on the current look's grade. */
+  applyLook(): void {
+    this.bloom.luminanceMaterial.threshold = LOOK_NOW.bloom.threshold;
+    this.bloom.intensity = LOOK_NOW.bloom.intensity;
+    this.vignette.darkness = LOOK_NOW.vignette;
+    this.grade.saturation = LOOK_NOW.grade.saturation;
+    this.contrast.brightness = LOOK_NOW.grade.brightness;
+    this.contrast.contrast = LOOK_NOW.grade.contrast;
   }
 
   /** Swap the scene/camera being rendered (e.g. lab vs game). */
