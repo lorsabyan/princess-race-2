@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PAL } from '../kit/palette';
 import { Bins, type Prefab } from './bins';
+import { farBox, farCrown, farStrip } from './farProxy';
 import {
   CHUNK_LEN,
   CURB_OUT,
@@ -12,7 +13,7 @@ import {
   ROAD_HALF,
   WALK_OUT,
   WALK_Y,
-  addCurbs,
+  addEdging,
   buildGroundGeometry,
   groundTriangles,
   groundMaterial,
@@ -101,6 +102,8 @@ export const CHUNK_LENGTH = CHUNK_LEN;
 
 export interface TownChunk {
   group: THREE.Group;
+  /** Cheap stand-in shown far down the road. */
+  far?: THREE.Group;
   dispose(): void;
 }
 
@@ -132,6 +135,8 @@ const REAR_RESERVE = 5600;
 
 interface Ctx {
   b: Bins;
+  /** Stand-ins for the far view: one box per house, one blob per tree. */
+  far: Bins;
   rng: Rng;
   plan: GroundPlan;
   index: number;
@@ -253,6 +258,7 @@ function treeInner(ctx: Ctx, kind: TreeKind, x: number, z: number, scale = 1, v?
   }
   put(ctx, prefab, x, z, rng.range(0, Math.PI * 2), scale * rng.range(0.92, 1.08), tint(rng));
   blob(ctx, x, z, 0, 0, r * scale * 1.1, kind === 'cypress' ? 0.2 : 0.28);
+  if (Math.abs(x) < 34) farCrown(ctx.far, x, LAWN_Y, z, 4.8 * scale, kind === 'pinkLollipop' || kind === 'blossom' || kind === 'farPink' ? '#ffb3cf' : '#7ccb86');
 }
 
 function bushAt(ctx: Ctx, x: number, z: number, scale = 1, flowers: string | null = null): void {
@@ -360,6 +366,7 @@ function placeHouse(ctx: Ctx, s: Side, xFront: number, zc: number, spec: HouseSp
     info = buildHouse(ctx.b, spec, rng.fork(17));
   });
   const doorZ = zc + s * info.doorU;
+  farBox(ctx.far, s * (xFront + spec.d / 2), LAWN_Y, zc, 0, spec.w, Math.max(3, info.wallTop), spec.d, spec.scheme.wall, spec.scheme.roof);
   // Footprint AO (+ tower).
   blob(ctx, s * (xFront + spec.d / 2), zc, spec.d / 2 + 0.1, spec.w / 2 + 0.1, 1.5, 0.34);
   let z0 = zc + spec.w / 2;
@@ -911,13 +918,14 @@ export function buildTownChunk(index: number, seed: number, opts: TownChunkOptio
   const arch = archetypeFor(index, seed);
   const rng = makeRng(hashInts(seed, index, 0x51de));
   const b = new Bins();
+  const farBins = new Bins();
   const plan: GroundPlan = { index, seed, plazas: [], blobs: [] };
-  const ctx: Ctx = { b, rng, plan, index, arch, keep: { [-1]: [], [1]: [] }, verge: { [-1]: [], [1]: [] }, frontCap: Infinity, rich: 1 };
+  const ctx: Ctx = { b, far: farBins, rng, plan, index, arch, keep: { [-1]: [], [1]: [] }, verge: { [-1]: [], [1]: [] }, frontCap: Infinity, rich: 1 };
   const clear: Record<Side, boolean> = { [-1]: !!opts.clearLeft, [1]: !!opts.clearRight };
   const kinds = sideKinds(arch, rng);
   const kindOf = (s: Side): SideKind => (s < 0 ? kinds[0] : kinds[1]);
 
-  addCurbs(b);
+  addEdging(b);
 
   // Road-spanning showpieces first so the verge keeps their footprint free.
   const showpieces = !clear[-1] && !clear[1];
@@ -997,17 +1005,30 @@ export function buildTownChunk(index: number, seed: number, opts: TownChunkOptio
   const group = new THREE.Group();
   group.name = `town-chunk-${index}`;
   group.userData.archetype = arch;
+  group.userData.plazas = plan.plazas;
   group.add(ground);
   for (const m of b.meshes('town')) group.add(m);
   group.position.z = -index * CHUNK_LENGTH;
+
+  farStrip(farBins, 'town', LAWN_OUT);
+  const far = new THREE.Group();
+  far.name = `town-far-${index}`;
+  for (const m of farBins.meshes('town-far')) {
+    m.castShadow = false;
+    m.receiveShadow = false;
+    far.add(m);
+  }
   return {
     group,
+    far,
     dispose() {
-      group.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) mesh.geometry.dispose();
-      });
-      group.removeFromParent();
+      for (const root of [group, far]) {
+        root.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh) mesh.geometry.dispose();
+        });
+        root.removeFromParent();
+      }
     },
   };
 }

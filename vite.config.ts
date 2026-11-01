@@ -13,9 +13,9 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'Princess Race 2',
-        short_name: 'Princess 2',
-        description: 'A gentle princess driving game for little ones.',
+        name: 'Princess Race 3',
+        short_name: 'Princess 3',
+        description: 'A gentle princess driving game for little ones: follow the rose road to the castle.',
         theme_color: '#ffc9dc',
         background_color: '#ffe7d6',
         display: 'fullscreen',

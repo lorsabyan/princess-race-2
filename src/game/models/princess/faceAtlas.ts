@@ -53,13 +53,14 @@ export function faceUv(dx: number, dy: number, dz: number): [number, number] {
 type G = CanvasRenderingContext2D;
 const TAU = Math.PI * 2;
 
-const INK = '#3a1f36';
-const EYE_TOP = '#2a1428';
-const EYE_MID = PAL.eye;
-const EYE_LOW = '#7a4468';
+const INK = '#33193a';
+const IRIS_DEEP = '#3d2277';
+const IRIS_MID = '#7e56dc';
+const IRIS_LOW = '#cfa8ff';
+const PUPIL = '#1d1033';
 const BROW = '#7b4026';
-const LIP = '#a23c55';
-const MOUTH = '#7a1f3a';
+const LIP = '#c04a6a';
+const MOUTH = '#8a2342';
 const TONGUE = '#ff8ba3';
 
 interface Layout {
@@ -73,15 +74,16 @@ interface Layout {
   blushY: number;
 }
 
+// Big eyes set wide and low on the face: the look of a very young, friendly character.
 const L: Layout = {
-  eyeX: 19.5,
-  eyeY: 1.5,
-  eyeW: 11.5,
-  eyeH: 15,
-  browY: -12.5,
-  mouthY: 17.5,
-  blushX: 28,
-  blushY: 11,
+  eyeX: 23.5,
+  eyeY: 6,
+  eyeW: 21,
+  eyeH: 26,
+  browY: -11.5,
+  mouthY: 25,
+  blushX: 37,
+  blushY: 19,
 };
 
 function blush(g: G, strength = 1): void {
@@ -89,10 +91,10 @@ function blush(g: G, strength = 1): void {
     g.save();
     g.translate(s * L.blushX, L.blushY);
     g.scale(1, 0.62);
-    const r = 8.5;
+    const r = 10.5;
     const grad = g.createRadialGradient(0, 0, 0, 0, 0, r);
-    grad.addColorStop(0, `rgba(255, 128, 150, ${0.62 * strength})`);
-    grad.addColorStop(0.55, `rgba(255, 140, 160, ${0.34 * strength})`);
+    grad.addColorStop(0, `rgba(255, 112, 140, ${0.5 * strength})`);
+    grad.addColorStop(0.55, `rgba(255, 130, 155, ${0.26 * strength})`);
     grad.addColorStop(1, 'rgba(255, 150, 170, 0)');
     g.fillStyle = grad;
     g.beginPath();
@@ -110,19 +112,30 @@ function blush(g: G, strength = 1): void {
 function brows(g: G, raise = 0, arch = 0): void {
   g.strokeStyle = BROW;
   g.lineCap = 'round';
-  g.lineWidth = 1.7;
+  g.lineWidth = 1.6;
   for (const s of [-1, 1]) {
     const cx = s * (L.eyeX + 0.5);
     const cy = L.browY - raise;
     g.beginPath();
     // Soft arc; the outer end sits slightly lower for a gentle look.
-    g.moveTo(cx - s * 4.2, cy + 0.5);
-    g.quadraticCurveTo(cx, cy - 1.6 - arch, cx + s * 4.4, cy + 1.2);
+    g.moveTo(cx - s * 5, cy + 0.9);
+    g.quadraticCurveTo(cx, cy - 1.8 - arch, cx + s * 5.4, cy + 1.3);
     g.stroke();
   }
 }
 
-function openEye(g: G, side: number, opts: { w?: number; h?: number; lid?: number; round?: boolean } = {}): void {
+/** Soft shadow under the little nose: gives the flat paint a bit of shape. */
+function nose(g: G): void {
+  const grad = g.createRadialGradient(0, 15, 0, 0, 15, 3.2);
+  grad.addColorStop(0, 'rgba(226, 132, 110, 0.55)');
+  grad.addColorStop(1, 'rgba(226, 132, 110, 0)');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.ellipse(0, 15, 3.2, 1.8, 0, 0, TAU);
+  g.fill();
+}
+
+function openEye(g: G, side: number, opts: { w?: number; h?: number; lid?: number } = {}): void {
   const cx = side * L.eyeX;
   const cy = L.eyeY;
   const w = opts.w ?? L.eyeW;
@@ -130,78 +143,125 @@ function openEye(g: G, side: number, opts: { w?: number; h?: number; lid?: numbe
   const rx = w / 2;
   const ry = h / 2;
   const lid = opts.lid ?? 0; // 0 open .. 1 closed (fraction of height covered from the top)
+  const ri = Math.min(rx * 0.93, ry * 0.8);
+  const ix = cx - side * rx * 0.05;
+  const iy = cy + ry * 0.08;
 
   g.save();
-  // Clip away the lid-covered part.
+  // Clip away the lid-covered part, then keep everything inside the eye.
   g.beginPath();
   g.rect(cx - rx - 4, cy - ry + h * lid, w + 8, h + 8);
   g.clip();
-
-  // Eye body with a vertical gradient (dark top, plum-rose bottom).
-  g.beginPath();
-  g.ellipse(cx, cy, rx, ry, 0, 0, TAU);
-  const grad = g.createLinearGradient(cx, cy - ry, cx, cy + ry);
-  grad.addColorStop(0, EYE_TOP);
-  grad.addColorStop(0.5, EYE_MID);
-  grad.addColorStop(1, EYE_LOW);
-  g.fillStyle = grad;
-  g.fill();
-
-  // Soft lower iris glow.
-  g.save();
   g.beginPath();
   g.ellipse(cx, cy, rx, ry, 0, 0, TAU);
   g.clip();
-  const glow = g.createRadialGradient(cx, cy + ry * 0.62, 0, cx, cy + ry * 0.62, rx * 1.05);
-  glow.addColorStop(0, 'rgba(214, 140, 190, 0.75)');
-  glow.addColorStop(1, 'rgba(214, 140, 190, 0)');
-  g.fillStyle = glow;
-  g.fillRect(cx - rx, cy - ry, w, h);
-  g.restore();
 
-  // Highlights: big one upper-right (sun comes from her left = viewer's right), small one lower-left.
+  // White of the eye, shaded under the lid.
+  const white = g.createLinearGradient(cx, cy - ry, cx, cy + ry * 0.4);
+  white.addColorStop(0, '#c9bcde');
+  white.addColorStop(0.5, '#f7f2fb');
+  white.addColorStop(1, '#ffffff');
+  g.fillStyle = white;
+  g.fillRect(cx - rx, cy - ry, w, h);
+
+  // Iris: deep at the top, glowing from below.
+  const iris = g.createLinearGradient(ix, iy - ri, ix, iy + ri);
+  iris.addColorStop(0, IRIS_DEEP);
+  iris.addColorStop(0.5, IRIS_MID);
+  iris.addColorStop(1, IRIS_LOW);
+  g.fillStyle = iris;
+  g.beginPath();
+  g.arc(ix, iy, ri, 0, TAU);
+  g.fill();
+  // Fine spokes in the iris.
+  g.lineWidth = 0.22;
+  for (let i = 0; i < 26; i += 1) {
+    const a = (i / 26) * TAU;
+    g.strokeStyle = i % 2 === 0 ? 'rgba(255, 230, 255, 0.34)' : 'rgba(40, 16, 90, 0.3)';
+    g.beginPath();
+    g.moveTo(ix + Math.cos(a) * ri * 0.42, iy + Math.sin(a) * ri * 0.42);
+    g.lineTo(ix + Math.cos(a) * ri * 0.92, iy + Math.sin(a) * ri * 0.92);
+    g.stroke();
+  }
+  // Dark ring and pupil.
+  g.strokeStyle = IRIS_DEEP;
+  g.lineWidth = 0.9;
+  g.beginPath();
+  g.arc(ix, iy, ri - 0.3, 0, TAU);
+  g.stroke();
+  g.fillStyle = PUPIL;
+  g.beginPath();
+  g.ellipse(ix, iy, ri * 0.5, ri * 0.56, 0, 0, TAU);
+  g.fill();
+  // Upper lid's shadow across the eye.
+  const shade = g.createLinearGradient(cx, cy - ry, cx, cy - ry * 0.25);
+  shade.addColorStop(0, 'rgba(36, 14, 66, 0.7)');
+  shade.addColorStop(1, 'rgba(36, 14, 66, 0)');
+  g.fillStyle = shade;
+  g.fillRect(cx - rx, cy - ry, w, h);
+
+  // Highlights: big one upper-right (the sun's side) on both eyes, small one lower-left.
   g.fillStyle = '#ffffff';
   g.beginPath();
-  g.ellipse(cx + rx * 0.3, cy - ry * 0.34, rx * 0.36, ry * 0.3, -0.3, 0, TAU);
+  g.ellipse(ix + ri * 0.34, iy - ri * 0.42, ri * 0.4, ri * 0.33, -0.35, 0, TAU);
   g.fill();
   g.beginPath();
-  g.arc(cx - rx * 0.36, cy + ry * 0.36, rx * 0.16, 0, TAU);
+  g.arc(ix - ri * 0.42, iy + ri * 0.42, ri * 0.17, 0, TAU);
   g.fill();
-  g.globalAlpha = 0.85;
+  g.globalAlpha = 0.8;
   g.beginPath();
-  g.arc(cx + rx * 0.02, cy + ry * 0.52, rx * 0.08, 0, TAU);
+  g.arc(ix + ri * 0.34, iy + ri * 0.55, ri * 0.09, 0, TAU);
   g.fill();
   g.globalAlpha = 1;
   g.restore();
 
-  // Upper lid line + lashes (outer side).
+  // Lower lid: a thin warm line.
+  g.strokeStyle = 'rgba(150, 80, 96, 0.6)';
+  g.lineCap = 'round';
+  g.lineWidth = 0.55;
+  g.beginPath();
+  g.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.2, Math.PI * 0.8);
+  g.stroke();
+
+  // Upper lid line, thick toward the outside, and lashes.
   const top = cy - ry + h * lid;
   g.strokeStyle = INK;
-  g.lineCap = 'round';
   g.lineJoin = 'round';
   if (lid < 0.05) {
-    g.lineWidth = 1.35;
+    g.lineWidth = 1.5;
     g.beginPath();
-    g.ellipse(cx, cy, rx + 0.35, ry + 0.35, 0, Math.PI * 1.1, Math.PI * 1.9);
+    g.ellipse(cx, cy, rx + 0.3, ry + 0.3, 0, Math.PI * 1.03, Math.PI * 1.97);
     g.stroke();
+    g.lineWidth = 2.1;
+    g.beginPath();
+    if (side > 0) g.ellipse(cx, cy, rx + 0.45, ry + 0.45, 0, Math.PI * 1.55, Math.PI * 2.03);
+    else g.ellipse(cx, cy, rx + 0.45, ry + 0.45, 0, Math.PI * 0.97, Math.PI * 1.45);
+    g.stroke();
+    // A faint crease above the lid.
+    g.strokeStyle = 'rgba(170, 96, 92, 0.45)';
+    g.lineWidth = 0.6;
+    g.beginPath();
+    g.ellipse(cx, cy - 0.4, rx + 1.6, ry + 1.5, 0, Math.PI * 1.22, Math.PI * 1.78);
+    g.stroke();
+    g.strokeStyle = INK;
   } else {
     // Lid edge: a gentle curve across the clipped eye.
     const half = rx * Math.sqrt(Math.max(0, 1 - Math.pow((top - cy) / ry, 2))) + 0.6;
-    g.lineWidth = 1.6;
+    g.lineWidth = 1.8;
     g.beginPath();
     g.moveTo(cx - half, top + 0.6);
     g.quadraticCurveTo(cx, top - 0.9, cx + half, top + 0.6);
     g.stroke();
   }
   // Lashes at the outer upper corner.
-  const ox = cx + side * rx * 0.78;
-  const oy = Math.max(top + 1.4, cy - ry * 0.55);
-  g.lineWidth = 1.25;
+  const ox = cx + side * rx * 0.86;
+  const oy = Math.max(top + 1.6, cy - ry * 0.4);
+  g.lineWidth = 1.2;
   for (let i = 0; i < 3; i += 1) {
-    const a = -0.35 - i * 0.42; // fan upward/outward
-    const len = 2.6 - i * 0.35;
-    const bx = ox - side * i * 1.1;
-    const by = oy - i * 1.25;
+    const a = -0.1 - i * 0.42; // fan upward/outward
+    const len = 3.6 - i * 0.4;
+    const bx = ox - side * i * 1.3;
+    const by = oy - i * 1.9;
     g.beginPath();
     g.moveTo(bx, by);
     g.quadraticCurveTo(
@@ -217,107 +277,118 @@ function openEye(g: G, side: number, opts: { w?: number; h?: number; lid?: numbe
 /** Closed, relaxed eye: a soft downward arc (like a contented blink). */
 function closedEye(g: G, side: number): void {
   const cx = side * L.eyeX;
-  const cy = L.eyeY + 2.5;
+  const cy = L.eyeY + 3;
   g.strokeStyle = INK;
   g.lineCap = 'round';
-  g.lineWidth = 1.7;
+  g.lineWidth = 1.9;
   g.beginPath();
-  g.moveTo(cx - 5.4, cy - 0.8);
-  g.quadraticCurveTo(cx, cy + 3.6, cx + 5.4, cy - 0.8);
+  g.moveTo(cx - 9.6, cy - 1);
+  g.quadraticCurveTo(cx, cy + 5.6, cx + 9.6, cy - 1);
   g.stroke();
   // Two lashes at the outer end.
   g.lineWidth = 1.2;
-  const ex = cx + side * 5.2;
-  const ey = cy - 0.6;
+  const ex = cx + side * 9.4;
+  const ey = cy - 0.8;
   g.beginPath();
   g.moveTo(ex, ey);
-  g.lineTo(ex + side * 2.1, ey - 1.2);
-  g.moveTo(ex - side * 1.3, ey + 0.9);
-  g.lineTo(ex + side * 0.7, ey + 0.6);
+  g.lineTo(ex + side * 2.6, ey - 1.5);
+  g.moveTo(ex - side * 1.6, ey + 1.1);
+  g.lineTo(ex + side * 0.9, ey + 0.8);
   g.stroke();
 }
 
 /** Happy squint: an upward arc (^). */
 function joyEye(g: G, side: number): void {
   const cx = side * L.eyeX;
-  const cy = L.eyeY + 1.5;
+  const cy = L.eyeY + 2;
   g.strokeStyle = INK;
   g.lineCap = 'round';
   g.lineJoin = 'round';
-  g.lineWidth = 2.1;
+  g.lineWidth = 2.3;
   g.beginPath();
-  g.moveTo(cx - 5.6, cy + 2.4);
-  g.quadraticCurveTo(cx, cy - 5.4, cx + 5.6, cy + 2.4);
+  g.moveTo(cx - 9.8, cy + 3.4);
+  g.quadraticCurveTo(cx, cy - 8.4, cx + 9.8, cy + 3.4);
   g.stroke();
   g.lineWidth = 1.2;
-  const ex = cx + side * 5.4;
-  const ey = cy + 1.6;
+  const ex = cx + side * 9.5;
+  const ey = cy + 2.4;
   g.beginPath();
   g.moveTo(ex - side * 0.6, ey - 1.2);
-  g.lineTo(ex + side * 1.9, ey - 2.6);
+  g.lineTo(ex + side * 2.3, ey - 3);
   g.stroke();
 }
 
-function smile(g: G, width = 7.5, depth = 3.2): void {
-  g.strokeStyle = LIP;
-  g.lineCap = 'round';
-  g.lineWidth = 1.5;
-  g.beginPath();
-  g.moveTo(-width / 2, L.mouthY - 0.6);
-  g.quadraticCurveTo(0, L.mouthY + depth, width / 2, L.mouthY - 0.6);
-  g.stroke();
-}
-
-function openSmile(g: G, width = 10, height = 6.5): void {
-  const y0 = L.mouthY - 1.2;
+/** Open smile with a line of teeth and a tongue. */
+function openSmile(g: G, width = 15, height = 10, teeth = 0.24): void {
+  const y0 = L.mouthY - 1.4;
+  const path = () => {
+    g.beginPath();
+    g.moveTo(-width / 2, y0);
+    g.quadraticCurveTo(0, y0 + 1.1, width / 2, y0);
+    g.bezierCurveTo(width / 2, y0 + height * 0.75, width * 0.24, y0 + height, 0, y0 + height);
+    g.bezierCurveTo(-width * 0.24, y0 + height, -width / 2, y0 + height * 0.75, -width / 2, y0);
+    g.closePath();
+  };
   g.save();
-  g.beginPath();
-  g.moveTo(-width / 2, y0);
-  g.quadraticCurveTo(0, y0 - 1.0, width / 2, y0);
-  g.bezierCurveTo(width / 2, y0 + height * 0.75, width * 0.22, y0 + height, 0, y0 + height);
-  g.bezierCurveTo(-width * 0.22, y0 + height, -width / 2, y0 + height * 0.75, -width / 2, y0);
-  g.closePath();
+  path();
   g.fillStyle = MOUTH;
   g.fill();
   g.clip();
   g.fillStyle = TONGUE;
   g.beginPath();
-  g.ellipse(0, y0 + height * 0.98, width * 0.34, height * 0.42, 0, 0, TAU);
+  g.ellipse(0, y0 + height * 0.98, width * 0.34, height * 0.44, 0, 0, TAU);
   g.fill();
+  g.fillStyle = '#fffdfb';
+  g.fillRect(-width / 2, y0 - 1, width, height * teeth + 1.6);
   g.restore();
   g.strokeStyle = LIP;
-  g.lineWidth = 0.9;
+  g.lineWidth = 0.8;
   g.lineJoin = 'round';
-  g.beginPath();
-  g.moveTo(-width / 2, y0);
-  g.quadraticCurveTo(0, y0 - 1.0, width / 2, y0);
-  g.bezierCurveTo(width / 2, y0 + height * 0.75, width * 0.22, y0 + height, 0, y0 + height);
-  g.bezierCurveTo(-width * 0.22, y0 + height, -width / 2, y0 + height * 0.75, -width / 2, y0);
-  g.closePath();
+  path();
   g.stroke();
+  // Soft lower-lip glow and little smile dents.
+  g.strokeStyle = 'rgba(255, 150, 160, 0.5)';
+  g.lineWidth = 0.9;
+  g.beginPath();
+  g.moveTo(-width * 0.2, y0 + height + 1.1);
+  g.quadraticCurveTo(0, y0 + height + 2, width * 0.2, y0 + height + 1.1);
+  g.stroke();
+  g.strokeStyle = 'rgba(200, 90, 100, 0.5)';
+  for (const s of [-1, 1]) {
+    g.beginPath();
+    g.moveTo(s * (width / 2 + 0.4), y0 - 1);
+    g.quadraticCurveTo(s * (width / 2 + 1.1), y0 - 0.1, s * (width / 2 + 0.6), y0 + 0.9);
+    g.stroke();
+  }
+}
+
+/** The everyday mouth: a small sweet open smile. */
+function smile(g: G): void {
+  openSmile(g, 11.5, 5.4, 0.3);
 }
 
 function ohMouth(g: G): void {
-  const cy = L.mouthY + 1.2;
+  const cy = L.mouthY + 1.6;
   g.save();
   g.beginPath();
-  g.ellipse(0, cy, 2.5, 3.1, 0, 0, TAU);
+  g.ellipse(0, cy, 3.4, 4.2, 0, 0, TAU);
   g.fillStyle = MOUTH;
   g.fill();
   g.clip();
   g.fillStyle = TONGUE;
   g.beginPath();
-  g.ellipse(0, cy + 2.3, 1.9, 1.5, 0, 0, TAU);
+  g.ellipse(0, cy + 3.1, 2.6, 2, 0, 0, TAU);
   g.fill();
   g.restore();
   g.strokeStyle = LIP;
   g.lineWidth = 0.8;
   g.beginPath();
-  g.ellipse(0, cy, 2.5, 3.1, 0, 0, TAU);
+  g.ellipse(0, cy, 3.4, 4.2, 0, 0, TAU);
   g.stroke();
 }
 
 function paintCell(g: G, cell: FaceCell): void {
+  nose(g);
   switch (cell) {
     case 'happy':
       blush(g);
@@ -343,8 +414,8 @@ function paintCell(g: G, cell: FaceCell): void {
     case 'surprised':
       blush(g, 0.8);
       brows(g, 3.2, 1.2);
-      openEye(g, -1, { w: 12.5, h: 14.5 });
-      openEye(g, 1, { w: 12.5, h: 14.5 });
+      openEye(g, -1, { w: 22, h: 27.5 });
+      openEye(g, 1, { w: 22, h: 27.5 });
       ohMouth(g);
       break;
     case 'joy':
@@ -359,7 +430,7 @@ function paintCell(g: G, cell: FaceCell): void {
       brows(g, 1.0);
       joyEye(g, -1); // her right eye (viewer's left) winks
       openEye(g, 1);
-      openSmile(g, 8.5, 5.2);
+      openSmile(g, 13, 7.4, 0.26);
       break;
   }
 }

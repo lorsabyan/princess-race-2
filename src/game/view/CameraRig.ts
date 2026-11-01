@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { Track, WorldPoint } from '../sim/track';
+import { REDUCED_MOTION } from './look';
 
 export interface CameraPose {
   position: THREE.Vector3;
@@ -7,6 +9,7 @@ export interface CameraPose {
 }
 
 const tmpDir = new THREE.Vector3();
+const tmpPoint: WorldPoint = { x: 0, y: 0, z: 0 };
 
 function damp(current: number, target: number, lambda: number, dt: number): number {
   return THREE.MathUtils.lerp(current, target, 1 - Math.exp(-lambda * dt));
@@ -29,21 +32,27 @@ export class CameraRig {
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
-  /** Chase framing behind the car. Portrait screens get a wider, higher view so the road fits. */
-  chase(carPos: THREE.Vector3, carX: number, steer: number, speed: number, aspect: number): CameraPose {
+  /**
+   * Chase framing along the road: the camera rides the road a little behind the
+   * car and looks further up it, so bends and hills read ahead of time.
+   * Portrait screens get a wider, higher view so the road fits.
+   */
+  chase(track: Track, s: number, carX: number, steer: number, speed: number, aspect: number): CameraPose {
     const portrait = Math.max(0, Math.min(1, (1.25 - aspect) / 0.75));
     // Close enough that the car and princess read big and friendly on screen.
-    const back = 6.1 + portrait * 2.4;
-    const height = 2.95 + portrait * 2.0;
+    const back = 5.7 + portrait * 2.3;
+    const height = 2.85 + portrait * 1.9;
     const d = this.desired;
-    d.position.set(carX * 0.75 + steer * 0.3, carPos.y + height, carPos.z + back);
+    track.toWorld(carX * 0.75 + steer * 0.3, height, s - back, tmpPoint);
+    d.position.set(tmpPoint.x, tmpPoint.y, tmpPoint.z);
     // Portrait screens look down more steeply so the road (not the sky) fills the tall view.
-    d.target.set(carX * 0.88 + steer * 0.55, carPos.y + 1.2 - portrait * 0.55, carPos.z - 6 + portrait * 1.0);
+    track.toWorld(carX * 0.88 + steer * 0.55, 1.2 - portrait * 0.55, s + 7 - portrait * 1.0, tmpPoint);
+    d.target.set(tmpPoint.x, tmpPoint.y, tmpPoint.z);
     // Keep ~7.5 units of road visible at the car's depth regardless of aspect.
     const depth = Math.hypot(back, height);
     const wanted = THREE.MathUtils.radToDeg(2 * Math.atan(7.6 / (2 * depth * Math.max(aspect, 0.3))));
     d.fov = THREE.MathUtils.clamp(Math.max(50 + speed * 0.25, wanted), 48, 82);
-    this.roll = damp(this.roll, -steer * 0.035, 5, 1 / 60);
+    this.roll = REDUCED_MOTION ? 0 : damp(this.roll, -steer * 0.035, 5, 1 / 60);
     return d;
   }
 
@@ -70,6 +79,7 @@ export class CameraRig {
   }
 
   addShake(amount: number): void {
+    if (REDUCED_MOTION) return;
     this.shake = Math.min(0.5, this.shake + amount);
   }
 

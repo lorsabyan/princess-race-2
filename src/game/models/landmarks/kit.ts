@@ -21,7 +21,7 @@ import { PAL } from '../kit/palette';
  * as one merged mesh per material role.
  */
 
-export type Role = 'matte' | 'satin' | 'gloss' | 'metal' | 'glass' | 'glow' | 'foliage' | 'matteWind';
+export type Role = 'matte' | 'stone' | 'satin' | 'gloss' | 'metal' | 'glass' | 'glow' | 'foliage' | 'matteWind';
 export type Col = THREE.ColorRepresentation;
 
 /** One PartBuilder per material role. */
@@ -38,6 +38,7 @@ export class Bag {
   }
 
   get matte(): PartBuilder { return this.get('matte'); }
+  get stone(): PartBuilder { return this.get('stone'); }
   get satin(): PartBuilder { return this.get('satin'); }
   get gloss(): PartBuilder { return this.get('gloss'); }
   get metal(): PartBuilder { return this.get('metal'); }

@@ -18,7 +18,7 @@ const COL = {
   duck: '#ffd955',
   duckBelly: '#fff0a6',
   duckWarm: '#ffb547',
-  duckling: '#ffe774',
+  duckling: '#ffdd58',
   ducklingBelly: '#fff8cf',
   beak: PAL.duckBeak,
   beakDeep: '#f5822a',

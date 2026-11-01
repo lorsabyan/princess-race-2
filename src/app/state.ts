@@ -1,4 +1,5 @@
 import { signal } from '@preact/signals';
+import type { Area } from '../game/sim/route';
 
 export type Screen = 'loading' | 'title' | 'intro' | 'play' | 'finish' | 'results';
 
@@ -19,6 +20,11 @@ export const ui = {
   /** Shows the drag-to-steer hint at the start of early levels. */
   showSteerHint: signal(false),
   gemFlash: signal(0),
+  /** Where each area begins on the progress bar (0..1). */
+  areaMarks: signal<Array<{ area: Area; at: number }>>([]),
+  /** The area just entered, shown as a big picture for a moment. */
+  areaFlash: signal<Area | null>(null),
+  areaPulse: signal(0),
 };
 
 const SAVE_KEY = 'princess-coin-drive:v1';

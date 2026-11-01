@@ -1,6 +1,8 @@
 import { FOOTPRINTS, TUNING, starsFor, type ObstacleKind } from './config';
 import { obstacleX, type LevelData } from './level';
 import { mulberry32, range, type Rng } from './rng';
+import type { Area } from './route';
+import { newRoadPoint } from './track';
 
 export type SimPhase = 'ready' | 'drive' | 'finish' | 'done';
 
@@ -10,6 +12,9 @@ export type SimEvent =
   | { type: 'bump'; obstacleId: number; kind: ObstacleKind; side: -1 | 1; lost: number }
   | { type: 'splash'; obstacleId: number }
   | { type: 'coinsLost'; ids: number[] }
+  | { type: 'hop' }
+  | { type: 'land' }
+  | { type: 'area'; area: Area }
   | { type: 'finish' }
   | { type: 'stopped' };
 
@@ -49,6 +54,8 @@ export interface CarSim {
   bump: number;
   invulnerable: number;
   slow: number;
+  /** Seconds left in a hop over a road hump (0 on the ground). */
+  hop: number;
 }
 
 /**
@@ -59,7 +66,7 @@ export interface CarSim {
 export class Sim {
   phase: SimPhase = 'ready';
   time = 0;
-  readonly car: CarSim = { x: 0, z: 0, vx: 0, targetX: 0, speed: 0, bump: 0, invulnerable: 0, slow: 0 };
+  readonly car: CarSim = { x: 0, z: 0, vx: 0, targetX: 0, speed: 0, bump: 0, invulnerable: 0, slow: 0, hop: 0 };
   readonly coins: CoinState[];
   readonly obstacles: ObstacleState[];
   readonly events: SimEvent[] = [];
@@ -71,6 +78,10 @@ export class Sim {
   private lastCoinTime = -10;
   private readonly rng: Rng;
   private finishZ: number;
+  private nextHop = 0;
+  /** Index of the next area on the route (the first one is where she starts). */
+  private nextArea = 1;
+  private readonly frame = newRoadPoint();
 
   constructor(readonly level: LevelData) {
     this.rng = mulberry32(level.seed ^ 0x5bd1e995);
@@ -78,7 +89,7 @@ export class Sim {
       id: c.id,
       kind: c.kind,
       x: c.x,
-      y: TUNING.coinHover,
+      y: c.y ?? TUNING.coinHover,
       z: c.z,
       alive: true,
       collectedAt: -1,
@@ -103,6 +114,9 @@ export class Sim {
     this.car.z = z;
     this.car.speed = this.level.speed;
     for (const c of this.coins) if (c.z > z) c.alive = false;
+    const { track } = this.level;
+    while (this.nextHop < track.hops.length && track.hops[this.nextHop] <= -z) this.nextHop += 1;
+    while (this.nextArea < track.route.length && track.route[this.nextArea].from <= -z) this.nextArea += 1;
   }
 
   /** Desired lateral position (world x). */
@@ -129,6 +143,10 @@ export class Sim {
     car.bump = Math.max(0, car.bump - dt * 2.2);
     car.invulnerable = Math.max(0, car.invulnerable - dt);
     car.slow = Math.max(0, car.slow - dt / TUNING.bumpRecover);
+    if (car.hop > 0) {
+      car.hop = Math.max(0, car.hop - dt);
+      if (car.hop === 0) this.events.push({ type: 'land' });
+    }
 
     this.stepSteering(dt);
     this.stepSpeed(dt);
@@ -143,10 +161,26 @@ export class Sim {
     if (this.phase === 'drive' || this.phase === 'finish') this.collectCoins();
     if (this.phase === 'drive') {
       this.checkObstacles();
+      this.checkRoad();
       if (car.z <= this.finishZ) {
         this.phase = 'finish';
         this.events.push({ type: 'finish' });
       }
+    }
+  }
+
+  /** Hops and area changes along the way. */
+  private checkRoad(): void {
+    const s = -this.car.z;
+    const { track } = this.level;
+    while (this.nextHop < track.hops.length && track.hops[this.nextHop] - 2 <= s) {
+      this.nextHop += 1;
+      this.car.hop = TUNING.hopTime;
+      this.events.push({ type: 'hop' });
+    }
+    while (this.nextArea < track.route.length && track.route[this.nextArea].from <= s) {
+      this.events.push({ type: 'area', area: track.route[this.nextArea].area });
+      this.nextArea += 1;
     }
   }
 
@@ -182,7 +216,9 @@ export class Sim {
       car.speed = Math.max(0.1, car.speed - decel * dt);
       return;
     }
-    const cruise = this.level.speed * (1 - TUNING.bumpSlow * car.slow);
+    const grade = this.level.track.sample(-car.z, this.frame).grade;
+    const hill = Math.max(-TUNING.hillSlower, Math.min(TUNING.hillFaster, -grade * TUNING.hillSpeed));
+    const cruise = this.level.speed * (1 - TUNING.bumpSlow * car.slow) * (1 + hill);
     const diff = cruise - car.speed;
     const rate = diff > 0 ? TUNING.accel : TUNING.accel * 3;
     car.speed += Math.sign(diff) * Math.min(Math.abs(diff), rate * dt);

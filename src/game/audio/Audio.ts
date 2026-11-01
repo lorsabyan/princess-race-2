@@ -4,7 +4,27 @@
  * soft reverb and a limiter so nothing is ever harsh for little ears.
  */
 
+import type { Area } from '../sim/route';
+
 type Song = 'title' | 'drive' | 'results' | null;
+
+/** How the driving song changes from area to area (level multipliers, sparkle = extra high notes). */
+const AREA_MIX: Record<Area, { drums: number; arp: number; sparkle: number }> = {
+  town: { drums: 1, arp: 1, sparkle: 0 },
+  meadow: { drums: 0.75, arp: 1.3, sparkle: 0.5 },
+  forest: { drums: 0.45, arp: 0.8, sparkle: 1 },
+  lake: { drums: 0.25, arp: 1.1, sparkle: 0.8 },
+  castle: { drums: 1.15, arp: 1, sparkle: 0.3 },
+};
+
+/** Four-note welcome for each area (MIDI). */
+const AREA_JINGLE: Record<Area, number[]> = {
+  town: [72, 76, 79, 84],
+  meadow: [79, 84, 88, 91],
+  forest: [69, 72, 76, 81],
+  lake: [76, 74, 79, 84],
+  castle: [72, 79, 84, 88],
+};
 
 // C major pentatonic across octaves (MIDI numbers).
 const PENTA = [60, 62, 64, 67, 69, 72, 74, 76, 79, 81, 84, 86, 88];
@@ -87,6 +107,8 @@ export class AudioEngine {
   private nextStep = 0;
   private schedulerTimer = 0;
   private musicOn = true;
+  private area: Area = 'town';
+  private ambienceTimer = 0;
   muted = false;
 
   /** Must be called from a user gesture (tap/click/key). Safe to call repeatedly. */
@@ -125,6 +147,7 @@ export class AudioEngine {
     this.reverbSend.connect(reverb);
     this.noiseBuffer = this.makeNoise(1.5);
     if (this.song) this.startSong(this.song, true);
+    this.ambienceTimer = window.setInterval(() => this.ambience(), 400);
   }
 
   setMuted(muted: boolean): void {
@@ -138,6 +161,11 @@ export class AudioEngine {
     if (!this.ctx) return;
     if (suspended) void this.ctx.suspend();
     else void this.ctx.resume();
+  }
+
+  /** Changes the mix of the driving song and the sounds around the road. */
+  setArea(area: Area): void {
+    this.area = area;
   }
 
   playSong(song: Song): void {
@@ -248,6 +276,55 @@ export class AudioEngine {
     this.shimmer(1.2, 1.4);
   }
 
+  areaJingle(area: Area): void {
+    AREA_JINGLE[area].forEach((n, i) => this.bell(midi(n + 12), i * 0.11, 0.7, 0.16, this.sfx));
+    this.shimmer(0.4, 0.7);
+  }
+
+  /** Up and over a hump. */
+  whee(): void {
+    this.blip(420, 0, 0.3, 0.1, 1250);
+    this.blip(1250, 0.3, 0.22, 0.05, 820);
+  }
+
+  land(): void {
+    this.noise(0.12, 0.08, 500, 'lowpass');
+  }
+
+  boing(): void {
+    this.blip(190, 0, 0.3, 0.2, 640);
+    this.blip(640, 0.17, 0.22, 0.08, 300);
+  }
+
+  baa(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    const wobble = ctx.createOscillator();
+    const depth = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(390, t);
+    osc.frequency.exponentialRampToValueAtTime(320, t + 0.42);
+    wobble.frequency.value = 24;
+    depth.gain.value = 26;
+    wobble.connect(depth).connect(osc.frequency);
+    filter.type = 'bandpass';
+    filter.frequency.value = 1050;
+    filter.Q.value = 1.4;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.2, t + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.46);
+    osc.connect(filter).connect(gain).connect(this.sfx);
+    gain.connect(this.reverbSend);
+    osc.start(t);
+    wobble.start(t);
+    osc.stop(t + 0.5);
+    wobble.stop(t + 0.5);
+  }
+
   giggle(): void {
     [84, 88, 86, 91].forEach((n, i) => this.blip(midi(n), i * 0.07, 0.06, 0.05, midi(n) * 1.06));
   }
@@ -276,6 +353,7 @@ export class AudioEngine {
 
   dispose(): void {
     window.clearInterval(this.schedulerTimer);
+    window.clearInterval(this.ambienceTimer);
     void this.ctx?.close();
     this.ctx = null;
   }
@@ -283,6 +361,25 @@ export class AudioEngine {
   // ---------------------------------------------------------------------------
   // Music sequencer
   // ---------------------------------------------------------------------------
+
+  /** Now and then, a sound from around the road. Only while driving. */
+  private ambience(): void {
+    if (this.song !== 'drive' || !this.musicOn || this.ctx?.state !== 'running') return;
+    const roll = Math.random();
+    if (this.area === 'forest') {
+      if (roll < 0.1) {
+        this.bell(midi(84), 0, 0.5, 0.035, this.sfx);
+        this.bell(midi(80), 0.26, 0.6, 0.03, this.sfx);
+      } else if (roll < 0.3) {
+        for (let i = 0; i < 6; i += 1) this.blip(4300, i * 0.045, 0.03, 0.008);
+      }
+    } else if (this.area === 'lake') {
+      if (roll < 0.28) this.noise(1.1, 0.05, 420, 'lowpass', 900);
+    } else if (roll < 0.2) {
+      const base = 2500 + Math.random() * 900;
+      for (let i = 0; i < 3; i += 1) this.blip(base, i * 0.1, 0.07, 0.016, base * 1.25);
+    }
+  }
 
   private startSong(song: Song, resume: boolean): void {
     const ctx = this.ctx!;
@@ -316,20 +413,25 @@ export class AudioEngine {
     for (const [s, note, len] of def.melody) {
       if (s === step) this.bell(midi(note), t - this.ctx!.currentTime, Math.max(0.35, len * stepDur * 1.6), 0.2, this.music, true);
     }
+    const mix = def.drums ? AREA_MIX[this.area] : AREA_MIX.town;
     // Arpeggio on 8ths, softly.
     if (inBar % 2 === 0) {
       const arp = [chord[1], chord[2], chord[3], chord[2]];
       const n = arp[(inBar / 2) % arp.length] + 12;
-      this.bell(midi(n), t - this.ctx!.currentTime, 0.35, 0.05, this.music, true);
+      this.bell(midi(n), t - this.ctx!.currentTime, 0.35, 0.05 * mix.arp, this.music, true);
+    }
+    // High sparkle notes in the country.
+    if (mix.sparkle > 0 && inBar % 4 === 2 && Math.random() < mix.sparkle * 0.4) {
+      this.bell(midi(chord[2 + (bar % 2)] + 24), t - this.ctx!.currentTime, 0.5, 0.04, this.music, true);
     }
     // Bass on beats 1 and 3.
     if (inBar === 0 || inBar === 8) this.pluckBass(midi(chord[0]), t, stepDur * 6);
     // Pad at bar start.
     if (inBar === 0) this.pad(chord, t, stepDur * 16);
     if (def.drums) {
-      if (inBar === 0 || inBar === 8) this.kick(t);
-      if (inBar === 4 || inBar === 12) this.snap(t);
-      if (inBar % 2 === 1) this.shaker(t, inBar % 4 === 3 ? 0.05 : 0.03);
+      if (inBar === 0 || inBar === 8) this.kick(t, mix.drums);
+      if (inBar === 4 || inBar === 12) this.snap(t, mix.drums);
+      if (inBar % 2 === 1) this.shaker(t, (inBar % 4 === 3 ? 0.05 : 0.03) * mix.drums);
     }
   }
 
@@ -402,22 +504,22 @@ export class AudioEngine {
     }
   }
 
-  private kick(t: number): void {
+  private kick(t: number, level: number): void {
     const ctx = this.ctx!;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.setValueAtTime(130, t);
     osc.frequency.exponentialRampToValueAtTime(48, t + 0.14);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.42, t + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.42 * level, t + 0.005);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
     osc.connect(gain).connect(this.music);
     osc.start(t);
     osc.stop(t + 0.22);
   }
 
-  private snap(t: number): void {
-    this.noiseAt(t, 0.09, 0.16, 2200, 'bandpass', undefined, this.music);
+  private snap(t: number, level: number): void {
+    this.noiseAt(t, 0.09, 0.16 * level, 2200, 'bandpass', undefined, this.music);
   }
 
   private shaker(t: number, vol: number): void {

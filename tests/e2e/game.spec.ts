@@ -83,3 +83,29 @@ test('a full level reaches the castle and shows stars', async ({ page }, info) =
   expect(s.sim!.collected).toBeGreaterThan(50);
   expect(errors).toEqual([]);
 });
+
+test('installs and plays offline after the first visit', async ({ page, context }, info) => {
+  test.skip(info.project.name !== 'desktop', 'one browser is enough');
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await page.waitForFunction(() => window.__ready === true, null, { timeout: 60_000 });
+
+  // Installable: a complete manifest with the home-screen icons.
+  const manifest = await page.evaluate(async () => (await fetch('manifest.webmanifest')).json());
+  expect(manifest.name).toBe('Princess Race 3');
+  expect(manifest.display).toBe('fullscreen');
+  const sizes = manifest.icons.map((i: { sizes: string }) => i.sizes);
+  expect(sizes).toContain('192x192');
+  expect(sizes).toContain('512x512');
+
+  // Offline: wait for the service worker to take over, then cut the network.
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 30_000 });
+  await context.setOffline(true);
+  await page.reload();
+  await page.waitForFunction(() => window.__ready === true, null, { timeout: 60_000 });
+  await page.getByRole('button', { name: 'Play' }).click();
+  await expect.poll(async () => (await stats(page)).mode, { timeout: 15_000 }).toBe('drive');
+  await expect.poll(async () => (await stats(page)).sim!.collected, { timeout: 20_000 }).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});

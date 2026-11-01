@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { PAL } from '../models/kit/palette';
 import { blend, ellipsoid, move, planeBelow, sphere, subtract, type SdfNode } from '../models/kit/sdf';
 import { meshSdf } from '../models/kit/mesher';
+import { noiseTexture } from '../models/kit/noise';
+import { LOOK_NOW } from './look';
 
 const SKY_VERT = /* glsl */ `
 varying vec3 vDir;
@@ -21,12 +23,20 @@ uniform vec3 uSunColor;
 uniform vec3 uSunDir;
 uniform vec3 uGlowDir;
 uniform float uSunDisc;
+uniform sampler2D uNoise;
+uniform vec2 uDrift;
 varying vec3 vDir;
 void main() {
   vec3 d = normalize( vDir );
   float h = d.y;
   vec3 col = mix( uHorizon, uMid, smoothstep( -0.02, 0.2, h ) );
   col = mix( col, uTop, smoothstep( 0.16, 0.72, h ) );
+  // High, thin streaks of cloud, far behind the puffy ones.
+  if ( h > 0.02 ) {
+    vec2 p = d.xz / ( h + 0.16 );
+    float wisps = texture2D( uNoise, p * vec2( 0.03, 0.085 ) + uDrift ).r * 0.66 + texture2D( uNoise, p * vec2( 0.085, 0.19 ) - uDrift * 1.7 ).a * 0.5;
+    col = mix( col, vec3( 1.0 ), smoothstep( 0.54, 0.86, wisps ) * smoothstep( 0.03, 0.2, h ) * 0.46 );
+  }
   col = mix( col, uGround, smoothstep( -0.01, -0.16, h ) );
   // Warm glow band toward the far end of the road.
   float g = max( dot( normalize( vec3( d.x, 0.0, d.z ) ), uGlowDir ), 0.0 );
@@ -52,14 +62,16 @@ export function createSkyMaterial(sunDir: THREE.Vector3, sunDisc = 1): THREE.Sha
     vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,
     uniforms: {
-      uTop: { value: color(PAL.skyTop) },
-      uMid: { value: color(PAL.skyMid) },
-      uHorizon: { value: color(PAL.skyHorizon) },
-      uGround: { value: color('#e9d6e4') },
-      uSunColor: { value: color(PAL.sunGlow) },
+      uTop: { value: color(LOOK_NOW.sky.top) },
+      uMid: { value: color(LOOK_NOW.sky.mid) },
+      uHorizon: { value: color(LOOK_NOW.sky.horizon) },
+      uGround: { value: color(LOOK_NOW.sky.ground) },
+      uSunColor: { value: color(LOOK_NOW.sky.glow) },
       uSunDir: { value: sunDir.clone().normalize() },
       uGlowDir: { value: new THREE.Vector3(0, 0, -1) },
       uSunDisc: { value: sunDisc },
+      uNoise: { value: noiseTexture() },
+      uDrift: { value: new THREE.Vector2() },
     },
     side: THREE.BackSide,
     depthWrite: false,
@@ -68,7 +80,41 @@ export function createSkyMaterial(sunDir: THREE.Vector3, sunDisc = 1): THREE.Sha
   });
 }
 
-/** One fluffy cloud: blended spheres with a soft flat underside. */
+const CLOUD_VERT = /* glsl */ `
+varying vec3 vNormal;
+varying vec3 vView;
+void main() {
+  vec4 w = modelMatrix * instanceMatrix * vec4( position, 1.0 );
+  vNormal = mat3( modelMatrix ) * mat3( instanceMatrix ) * normal;
+  vView = cameraPosition - w.xyz;
+  gl_Position = projectionMatrix * viewMatrix * w;
+}
+`;
+
+/** Lit like a cloud rather than a solid: bright on top, soft and see-through at the edges. */
+const CLOUD_FRAG = /* glsl */ `
+uniform vec3 uLit;
+uniform vec3 uShade;
+uniform vec3 uHaze;
+uniform vec3 uSunDir;
+varying vec3 vNormal;
+varying vec3 vView;
+void main() {
+  vec3 N = normalize( vNormal );
+  vec3 V = normalize( vView );
+  float light = smoothstep( 0.22, 0.86, ( dot( N, uSunDir ) * 0.5 + 0.5 ) * 0.42 + ( N.y * 0.5 + 0.5 ) * 0.58 );
+  vec3 col = mix( uShade, uLit, light );
+  float facing = max( dot( N, V ), 0.0 );
+  col = mix( col, uLit, pow( 1.0 - facing, 3.0 ) * 0.7 );
+  // Low clouds sink into the haze of the horizon.
+  col = mix( uHaze, col, smoothstep( -0.02, 0.2, -V.y ) );
+  // Right overhead a cloud is only its flat base, so it fades away.
+  gl_FragColor = vec4( col, smoothstep( 0.03, 0.42, facing ) * ( 1.0 - smoothstep( 0.5, 0.82, V.y ) ) );
+  #include <colorspace_fragment>
+}
+`;
+
+/** One fluffy cloud: billowing spheres on a soft flat base. */
 function cloudField(seed: number): SdfNode {
   let s = seed * 9301 + 49297;
   const rnd = () => {
@@ -76,27 +122,27 @@ function cloudField(seed: number): SdfNode {
     return s / 233280;
   };
   const puffs: SdfNode[] = [];
-  const count = 5 + Math.floor(rnd() * 3);
+  const count = 7 + Math.floor(rnd() * 3);
   for (let i = 0; i < count; i += 1) {
     const t = i / (count - 1) - 0.5;
-    const r = 3.2 + rnd() * 2.6 - Math.abs(t) * 2.2;
-    puffs.push(move(sphere(r), t * 17 + (rnd() - 0.5) * 2, r * 0.45 + rnd() * 1.4, (rnd() - 0.5) * 5));
+    const r = 3.3 + rnd() * 2.8 - Math.abs(t) * 3.4;
+    puffs.push(move(sphere(r), t * 21 + (rnd() - 0.5) * 2, r * 0.6 + rnd() * 1.6, (rnd() - 0.5) * 6));
   }
-  puffs.push(move(ellipsoid(10, 2.6, 5.5), 0, 0.6, 0));
-  const body = blend(2.4, ...puffs);
-  return subtract(body, planeBelow(-0.2), 1.2);
+  for (let i = 0; i < 4; i += 1) {
+    const r = 2.1 + rnd() * 1.7;
+    puffs.push(move(sphere(r), (rnd() - 0.5) * 11, 4.6 + rnd() * 2.6, (rnd() - 0.5) * 4));
+  }
+  puffs.push(move(ellipsoid(11.5, 2.3, 6), 0, 0.7, 0));
+  return subtract(blend(1.2, ...puffs), planeBelow(-0.2), 1.6);
 }
 
 export function createCloudGeometry(seed: number): THREE.BufferGeometry {
-  const top = color('#ffffff');
-  const bottom = color('#dcd6f5');
-  const tmp = new THREE.Color();
   return meshSdf(cloudField(seed), {
-    min: [-17, -1.5, -9],
-    max: [17, 12, 9],
-    cell: 0.75,
+    min: [-19, -1.5, -11],
+    max: [19, 13, 11],
+    cell: 1.05,
     project: 2,
-    colorFn: (_x, y) => tmp.copy(bottom).lerp(top, Math.min(1, Math.max(0, (y + 0.4) / 5))).getHex(),
+    colors: { 0: '#ffffff' },
   });
 }
 
@@ -109,8 +155,11 @@ export class Sky {
   readonly dome: THREE.Mesh;
   readonly clouds = new THREE.Group();
   readonly sunDir: THREE.Vector3;
-  private readonly cloudMeshes: Array<{ mesh: THREE.Mesh; baseZ: number; drift: number }> = [];
+  private readonly cloudMeshes: THREE.InstancedMesh[] = [];
+  private readonly cloudSlots: Array<{ mesh: THREE.InstancedMesh; slot: number; x: number; y: number; baseZ: number; drift: number; turn: THREE.Quaternion; scale: THREE.Vector3 }> = [];
   private readonly span = 550;
+  private readonly matrix = new THREE.Matrix4();
+  private readonly spot = new THREE.Vector3();
 
   constructor(opts: SkyOptions) {
     this.sunDir = opts.sunDir.clone().normalize();
@@ -119,29 +168,43 @@ export class Sky {
     this.dome.frustumCulled = false;
     this.group.add(this.dome);
 
-    const cloudMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 1,
-      metalness: 0,
-      emissive: new THREE.Color('#fff4fb'),
-      emissiveIntensity: 0.42,
+    const cloudMat = new THREE.ShaderMaterial({
+      vertexShader: CLOUD_VERT,
+      fragmentShader: CLOUD_FRAG,
+      uniforms: {
+        uLit: { value: color(LOOK_NOW.cloud.lit) },
+        uShade: { value: color(LOOK_NOW.cloud.shade) },
+        uHaze: { value: color(LOOK_NOW.sky.horizon) },
+        uSunDir: { value: this.sunDir },
+      },
+      transparent: true,
+      depthWrite: false,
       fog: false,
     });
-    const geometries = [0, 1, 2, 3, 4].map((i) => createCloudGeometry(i + 3));
+    const shapes = 3;
     const rows = 14;
-    for (let i = 0; i < rows; i += 1) {
-      const mesh = new THREE.Mesh(geometries[i % geometries.length], cloudMat);
-      const side = i % 2 === 0 ? -1 : 1;
-      const x = side * (70 + ((i * 37) % 110));
-      const y = 38 + ((i * 53) % 46);
-      const baseZ = -(i / rows) * this.span;
-      const s = 1.1 + ((i * 29) % 10) / 10;
-      mesh.position.set(x, y, baseZ);
-      mesh.scale.setScalar(s);
-      mesh.rotation.y = (i * 1.7) % Math.PI;
+    for (let i = 0; i < shapes; i += 1) {
+      const mesh = new THREE.InstancedMesh(createCloudGeometry(i + 3), cloudMat, Math.ceil((rows - i) / shapes));
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
+      mesh.renderOrder = -900;
+      this.cloudMeshes.push(mesh);
       this.clouds.add(mesh);
-      this.cloudMeshes.push({ mesh, baseZ, drift: 0.6 + ((i * 13) % 7) / 10 });
+    }
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < rows; i += 1) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const size = 1.1 + ((i * 29) % 10) / 10;
+      this.cloudSlots.push({
+        mesh: this.cloudMeshes[i % shapes],
+        slot: Math.floor(i / shapes),
+        x: side * (70 + ((i * 37) % 110)),
+        y: 38 + ((i * 53) % 46),
+        baseZ: -(i / rows) * this.span,
+        drift: 0.6 + ((i * 13) % 7) / 10,
+        turn: new THREE.Quaternion().setFromAxisAngle(up, (i * 1.7) % Math.PI),
+        scale: new THREE.Vector3(size, size * 1.08, size),
+      });
     }
     this.group.add(this.clouds);
   }
@@ -153,14 +216,18 @@ export class Sky {
     const lo = -480;
     const hi = 70;
     const range = hi - lo;
-    for (const c of this.cloudMeshes) {
+    for (const c of this.cloudSlots) {
       // Clouds drift toward the camera at a fraction of its speed, so they feel far away,
       // then wrap around once they have passed overhead.
       const rel0 = c.baseZ - camZ * 0.12 + time * c.drift;
       const rel = lo + ((((rel0 - lo) % range) + range) % range);
-      c.mesh.position.z = camZ + rel;
+      this.matrix.compose(this.spot.set(c.x, c.y, camZ + rel), c.turn, c.scale);
+      c.mesh.setMatrixAt(c.slot, this.matrix);
     }
+    for (const mesh of this.cloudMeshes) mesh.instanceMatrix.needsUpdate = true;
     this.clouds.position.x = camera.position.x * 0.9;
+    const drift = (this.dome.material as THREE.ShaderMaterial).uniforms.uDrift.value as THREE.Vector2;
+    drift.set(time * 0.0011, time * 0.0004);
   }
 
   /** Bake a PMREM environment from a sky + ground + cloud scene. */

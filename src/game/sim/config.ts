@@ -1,3 +1,6 @@
+/** Scenery is built in pieces of this many meters of road. */
+export const CHUNK_METERS = 40;
+
 /** Gameplay tuning. Units are world units (~meters) and seconds. */
 export const TUNING = {
   /** Paved road half width. */
@@ -29,9 +32,15 @@ export const TUNING = {
   maxTrailSlope: 0.34,
   /** Two coins picked within this many seconds continue a combo. */
   comboWindow: 0.9,
+  /** Seconds in the air over a road hump (purely for fun: nothing changes while hopping). */
+  hopTime: 0.62,
+  /** Speed change per unit of road grade: the car swoops downhill and eases uphill. */
+  hillSpeed: 1.5,
+  hillFaster: 0.18,
+  hillSlower: 0.12,
 } as const;
 
-export type ObstacleKind = 'cones' | 'ducks' | 'cart' | 'puddle';
+export type ObstacleKind = 'cones' | 'ducks' | 'cart' | 'puddle' | 'sheep' | 'mushrooms';
 
 /** Collision half extents (x, z) per obstacle kind. Puddles splash instead of bumping. */
 export const FOOTPRINTS: Record<ObstacleKind, { halfWidth: number; halfDepth: number }> = {
@@ -39,6 +48,8 @@ export const FOOTPRINTS: Record<ObstacleKind, { halfWidth: number; halfDepth: nu
   ducks: { halfWidth: 0.9, halfDepth: 0.5 },
   cart: { halfWidth: 1.1, halfDepth: 0.8 },
   puddle: { halfWidth: 1.2, halfDepth: 1.0 },
+  sheep: { halfWidth: 1.0, halfDepth: 0.6 },
+  mushrooms: { halfWidth: 1.0, halfDepth: 0.7 },
 };
 
 export interface LevelSpec {
@@ -57,9 +68,9 @@ export function levelSpec(level: number): LevelSpec {
   return {
     level: n,
     seed: 1000 + n * 7919,
-    length: 600 + step * 40,
+    length: 960 + step * 40,
     speed: 10.5 + step * 0.4,
-    obstacleSpacing: Math.max(44, 78 - step * 5),
+    obstacleSpacing: Math.max(40, 62 - step * 4),
     gems: n === 1 ? 1 : 2,
   };
 }

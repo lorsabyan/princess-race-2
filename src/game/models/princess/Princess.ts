@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import type { PrincessMood, PrincessPose, PrincessRig, PrincessState } from '../contracts';
+import { HERO_SHADOW_VERTEX, worldUniforms } from '../kit/materials';
+import { noiseTexture } from '../kit/noise';
 import { createFaceAtlas, type FaceCell } from './faceAtlas';
 import { buildPrincessGeometries } from './assemble';
 import {
@@ -30,35 +32,141 @@ export interface PrincessRigExt extends PrincessRig {
 // Materials
 // ---------------------------------------------------------------------------
 
-function createMaterials(face: THREE.Texture) {
+/** Light soaking through skin: warm where the shadow begins, never green from the grass below. */
+const SKIN_LIGHT = /* glsl */ `
+#include <lights_fragment_end>
+#if NUM_DIR_LIGHTS > 0
+{
+  float nl = dot( normal, directionalLights[ 0 ].direction );
+  float soak = smoothstep( -0.42, 0.1, nl ) * ( 1.0 - smoothstep( 0.05, 0.6, nl ) );
+  reflectedLight.directDiffuse += diffuseColor.rgb * vec3( 0.62, 0.18, 0.13 ) * soak * directionalLights[ 0 ].color * RECIPROCAL_PI;
+}
+#endif
+{
+  // Shade stays rosy: keep how bright the bounce light is, but not its green.
+  float bounce = dot( reflectedLight.indirectDiffuse / max( diffuseColor.rgb, vec3( 0.06 ) ), vec3( 0.333 ) );
+  reflectedLight.indirectDiffuse = mix( reflectedLight.indirectDiffuse, diffuseColor.rgb * bounce * vec3( 1.1, 0.98, 0.95 ), 0.85 );
+  float rim = 1.0 - saturate( dot( normal, geometryViewDir ) );
+  totalEmissiveRadiance += vec3( 1.0, 0.55, 0.46 ) * rim * rim * rim * 0.34;
+}
+`;
+
+const HAIR_VERTEX_PARS = /* glsl */ `
+#include <common>
+attribute vec4 hair;
+attribute float flutter;
+uniform vec2 uWind;
+varying vec3 vFlow;
+varying float vStrand;
+`;
+
+/** Ribbon tails: they trail straight back at speed, hang down at rest, and always ripple. */
+const HAIR_BEGIN = /* glsl */ `
+#include <begin_vertex>
+if ( flutter > 0.0 ) {
+  float wave = uWind.x * ( 5.0 + 5.0 * uWind.y ) - flutter * 8.0 + position.x * 9.0;
+  float reach = flutter * flutter;
+  transformed.y -= ( 1.0 - uWind.y ) * reach * 0.46;
+  transformed.z -= ( 1.0 - uWind.y ) * reach * 0.34;
+  transformed.y += sin( wave ) * flutter * ( 0.022 + 0.04 * uWind.y );
+  transformed.x += sin( wave * 0.73 + 1.3 ) * flutter * ( 0.016 + 0.026 * uWind.y );
+}
+`;
+
+const HAIR_SKIN = /* glsl */ `
+#include <skinnormal_vertex>
+vFlow = normalMatrix * vec3( skinMatrix * vec4( hair.xyz, 0.0 ) );
+vStrand = hair.w;
+`;
+
+const HAIR_FRAGMENT_PARS = /* glsl */ `
+#include <common>
+uniform sampler2D uNoise;
+varying vec3 vFlow;
+varying float vStrand;
+`;
+
+const HAIR_STRANDS = /* glsl */ `
+#include <color_fragment>
+if ( vStrand > 0.005 ) {
+  float fine = texture2D( uNoise, vec2( vStrand, 0.31 ) ).b;
+  float broad = texture2D( uNoise, vec2( vStrand * 0.31, 0.77 ) ).a;
+  diffuseColor.rgb *= 0.74 + 0.34 * fine + 0.34 * broad;
+}
+`;
+
+/**
+ * Hair highlight (Kajiya-Kay): light catches hair across the strands, not at a point, so
+ * the shine is a band around the head that slides as she moves. Two lobes: a tight white
+ * one and a broader one in the hair's own color, each broken up strand by strand.
+ */
+const HAIR_LIGHT = /* glsl */ `
+#include <lights_fragment_end>
+#if NUM_DIR_LIGHTS > 0
+if ( vStrand > 0.005 ) {
+  vec3 hairL = directionalLights[ 0 ].direction;
+  vec3 hairH = normalize( hairL + geometryViewDir );
+  vec3 hairT = normalize( vFlow - normal * dot( vFlow, normal ) );
+  float hairJit = texture2D( uNoise, vec2( vStrand, 0.53 ) ).b - 0.5;
+  float th1 = dot( normalize( hairT + normal * ( 0.1 + hairJit * 0.3 ) ), hairH );
+  float th2 = dot( normalize( hairT + normal * ( -0.16 + hairJit * 0.3 ) ), hairH );
+  float tight = pow( max( 0.0, 1.0 - th1 * th1 ), 160.0 );
+  float broad = pow( max( 0.0, 1.0 - th2 * th2 ), 26.0 );
+  float hairLit = smoothstep( -0.25, 0.35, dot( normal, hairL ) );
+  reflectedLight.directSpecular += ( vec3( 1.0, 0.92, 0.8 ) * tight * 0.075 + diffuseColor.rgb * broad * 0.2 ) * hairLit * directionalLights[ 0 ].color;
+}
+#endif
+`;
+
+function createMaterials(face: THREE.Texture, wind: { value: THREE.Vector2 }) {
   const skin = new THREE.MeshStandardMaterial({
     name: 'princess.skin',
     map: face,
     emissiveMap: face,
     emissive: new THREE.Color('#ff9f82'),
-    emissiveIntensity: 0.22,
+    emissiveIntensity: 0.16,
     vertexColors: true,
-    roughness: 0.55,
+    roughness: 0.52,
     metalness: 0,
   });
+  skin.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <shadowmap_vertex>', HERO_SHADOW_VERTEX);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', SKIN_LIGHT);
+  };
+  skin.customProgramCacheKey = () => 'princess-skin';
   const hair = new THREE.MeshPhysicalMaterial({
     name: 'princess.hair',
     vertexColors: true,
-    roughness: 0.46,
+    roughness: 0.5,
     metalness: 0,
-    sheen: 0.55,
-    sheenRoughness: 0.4,
+    sheen: 0.3,
+    sheenRoughness: 0.45,
     sheenColor: new THREE.Color('#ffd0b8'),
-    clearcoat: 0.18,
-    clearcoatRoughness: 0.38,
+    clearcoat: 0.1,
+    clearcoatRoughness: 0.4,
   });
+  hair.onBeforeCompile = (shader) => {
+    worldUniforms.uNoise.value ??= noiseTexture();
+    shader.uniforms.uNoise = worldUniforms.uNoise;
+    shader.uniforms.uWind = wind;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', HAIR_VERTEX_PARS)
+      .replace('#include <begin_vertex>', HAIR_BEGIN)
+      .replace('#include <skinnormal_vertex>', HAIR_SKIN)
+      .replace('#include <shadowmap_vertex>', HERO_SHADOW_VERTEX);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', HAIR_FRAGMENT_PARS)
+      .replace('#include <color_fragment>', HAIR_STRANDS)
+      .replace('#include <lights_fragment_end>', HAIR_LIGHT);
+  };
+  hair.customProgramCacheKey = () => 'princess-hair';
   const dress = new THREE.MeshPhysicalMaterial({
     name: 'princess.dress',
     vertexColors: true,
-    roughness: 0.7,
+    roughness: 0.62,
     metalness: 0,
-    sheen: 1,
-    sheenRoughness: 0.45,
+    sheen: 0.7,
+    sheenRoughness: 0.42,
     sheenColor: new THREE.Color('#ffe0ee'),
     // Keeps the pinks warm (not lilac) on the shaded side.
     emissive: new THREE.Color('#ff7aa8'),
@@ -71,8 +179,8 @@ function createMaterials(face: THREE.Texture) {
     metalness: 1,
     envMapIntensity: 1.2,
     // Warm glow so the gold never picks up the green ground.
-    emissive: new THREE.Color('#7a4a00'),
-    emissiveIntensity: 0.35,
+    emissive: new THREE.Color('#a86400'),
+    emissiveIntensity: 0.5,
   });
   const jewels = new THREE.MeshPhysicalMaterial({
     name: 'princess.jewels',
@@ -85,8 +193,53 @@ function createMaterials(face: THREE.Texture) {
     iridescenceIOR: 1.35,
     envMapIntensity: 1.2,
   });
+  for (const m of [dress, gold, jewels]) {
+    m.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader.replace('#include <shadowmap_vertex>', HERO_SHADOW_VERTEX);
+    };
+    m.customProgramCacheKey = () => 'princess-hero';
+  }
   return { skin, hair, dress, gold, jewels };
 }
+
+// ---------------------------------------------------------------------------
+// Crown sparkle
+// ---------------------------------------------------------------------------
+
+/** A four-point star of light. */
+function glintTexture(): THREE.CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d')!;
+  g.translate(size / 2, size / 2);
+  const glow = g.createRadialGradient(0, 0, 0, 0, 0, size * 0.26);
+  glow.addColorStop(0, 'rgba(255, 252, 235, 1)');
+  glow.addColorStop(1, 'rgba(255, 236, 170, 0)');
+  g.fillStyle = glow;
+  g.fillRect(-size / 2, -size / 2, size, size);
+  g.fillStyle = '#fffdf2';
+  for (let i = 0; i < 2; i += 1) {
+    g.rotate(Math.PI / 2);
+    g.beginPath();
+    g.moveTo(-size * 0.49, 0);
+    g.quadraticCurveTo(0, -size * 0.022, size * 0.49, 0);
+    g.quadraticCurveTo(0, size * 0.022, -size * 0.49, 0);
+    g.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** Crown points that take turns to catch the sun, in the head bone's frame. */
+const GLINT_SPOTS: Array<[number, number, number]> = [
+  [0.0, 0.67, -0.15],
+  [0.14, 0.64, -0.02],
+  [-0.13, 0.645, 0.04],
+];
+const GLINT_EVERY = 2.3;
+const GLINT_LEN = 0.5;
 
 // ---------------------------------------------------------------------------
 // Small math helpers
@@ -149,7 +302,9 @@ export function createPrincess(): PrincessRigExt {
   // Geometry + materials + meshes.
   const face = createFaceAtlas();
   const geos = buildPrincessGeometries();
-  const mats = createMaterials(face.texture);
+  // x: time, y: how hard the wind of her speed blows (0..1).
+  const wind = { value: new THREE.Vector2() };
+  const mats = createMaterials(face.texture, wind);
   const meshes: Record<string, THREE.SkinnedMesh> = {};
   const identity = new THREE.Matrix4();
   const addMesh = (name: string, geo: THREE.BufferGeometry, material: THREE.Material) => {
@@ -174,6 +329,14 @@ export function createPrincess(): PrincessRigExt {
     crownGold: 'gold',
     jewels: 'jewels',
   };
+
+  const glintMap = glintTexture();
+  const glint = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: glintMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }),
+  );
+  glint.name = 'crown-glint';
+  glint.visible = false;
+  bones[B.head].add(glint);
 
   // -------------------------------------------------------------------------
   // State
@@ -352,6 +515,7 @@ export function createPrincess(): PrincessRigExt {
     speedS = damp(speedS, speedN, 3, dt);
     walkW = damp(walkW, sit ? 0 : clamp(state.walk, 0, 1), 8, dt);
     if (walkW > 0.001) walkPhase += dt * Math.PI * 2 * 1.75;
+    wind.value.set(t, clamp(speedS * 1.1, 0, 1));
 
     // Timers.
     if (moodTimer !== Infinity) {
@@ -577,6 +741,18 @@ export function createPrincess(): PrincessRigExt {
       }
     }
     face.select(cell);
+
+    // --- Crown sparkle ------------------------------------------------------
+    const beat = t / GLINT_EVERY;
+    const age = (beat - Math.floor(beat)) * GLINT_EVERY;
+    glint.visible = age < GLINT_LEN;
+    if (glint.visible) {
+      const spot = GLINT_SPOTS[Math.floor(beat) % GLINT_SPOTS.length];
+      const pop = Math.sin((age / GLINT_LEN) * Math.PI);
+      glint.position.set(spot[0], spot[1], spot[2]);
+      glint.scale.setScalar(0.34 * pop * pop);
+      glint.material.rotation = age * 1.6;
+    }
   };
 
   function blendDir(base: THREE.Vector3, target: THREE.Vector3, w: number, side: number): void {
@@ -604,6 +780,8 @@ export function createPrincess(): PrincessRigExt {
     }
     face.dispose();
     skeleton.dispose();
+    glintMap.dispose();
+    glint.material.dispose();
   };
 
   setPose('stand');

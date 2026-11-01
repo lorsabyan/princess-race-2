@@ -31,17 +31,15 @@ const VERT = /* glsl */ `
 attribute vec3 iPos;
 attribute vec4 iColor;
 attribute vec4 iMisc; // size, rotation, shape, flip
-uniform float uCurveOrigin;
+uniform vec2 uCurveOrigin;
 uniform float uCurveY;
-uniform float uCurveX;
 varying vec2 vUv;
 varying vec4 vColor;
 varying float vShape;
 void main() {
   vec3 w = iPos;
-  float dz = abs( uCurveOrigin - w.z );
-  w.y -= uCurveY * dz * dz;
-  w.x += uCurveX * dz * dz;
+  vec2 d = w.xz - uCurveOrigin;
+  w.y -= uCurveY * dot( d, d );
   vec4 mv = viewMatrix * vec4( w, 1.0 );
   vec2 corner = position.xy;
   corner.x *= iMisc.w;
@@ -51,6 +49,8 @@ void main() {
   gl_Position = projectionMatrix * mv;
   vUv = position.xy * 2.0;
   vColor = iColor;
+  // The camera drives through particles left on the road: fade them before they fill the screen.
+  vColor.a *= smoothstep( 1.5, 5.0, -mv.z );
   vShape = iMisc.z;
 }
 `;
@@ -149,7 +149,6 @@ class ParticleSystem {
       uniforms: {
         uCurveOrigin: worldUniforms.uCurveOrigin,
         uCurveY: worldUniforms.uCurveY,
-        uCurveX: worldUniforms.uCurveX,
       },
       transparent: true,
       depthWrite: false,
@@ -286,6 +285,7 @@ export class Vfx {
   private readonly solid = new ParticleSystem(700, false);
   private readonly tmp = new THREE.Vector3();
   private trailAccumulator = 0;
+  private fireflyAccumulator = 0;
 
   constructor() {
     this.group.add(this.solid.mesh, this.glow.mesh);
@@ -304,13 +304,13 @@ export class Vfx {
   }
 
   bump(pos: THREE.Vector3): void {
-    this.solid.emit({ count: 9, position: this.tmp.copy(pos).setY(0.4), spread: 1.2, speed: [0.8, 2.2], up: 0.8, gravity: 0.5, drag: 3, life: [0.5, 0.8], size: [0.5, 0.9], grow: 1.8, colors: ['#fff4ee', '#f6e2e8', '#efe0d6'], shape: 'dot' });
-    this.glow.emit({ count: 6, position: this.tmp.copy(pos).setY(1.9), spread: 0.6, speed: [1.2, 2.2], up: 1.5, gravity: -4, drag: 2, life: [0.6, 0.9], size: [0.35, 0.5], colors: ['#fff09a', '#ffffff'], shape: 'sparkle', spin: 6, intensity: 1.5 });
+    this.solid.emit({ count: 9, position: this.tmp.copy(pos).setY(pos.y + 0.4), spread: 1.2, speed: [0.8, 2.2], up: 0.8, gravity: 0.5, drag: 3, life: [0.5, 0.8], size: [0.5, 0.9], grow: 1.8, colors: ['#fff4ee', '#f6e2e8', '#efe0d6'], shape: 'dot' });
+    this.glow.emit({ count: 6, position: this.tmp.copy(pos).setY(pos.y + 1.9), spread: 0.6, speed: [1.2, 2.2], up: 1.5, gravity: -4, drag: 2, life: [0.6, 0.9], size: [0.35, 0.5], colors: ['#fff09a', '#ffffff'], shape: 'sparkle', spin: 6, intensity: 1.5 });
   }
 
   splash(pos: THREE.Vector3): void {
-    this.solid.emit({ count: 34, position: this.tmp.copy(pos).setY(0.2), spread: 1.4, speed: [2.5, 5.5], up: 4.5, bias: [0, 0.8, 0.4], gravity: -14, drag: 0.6, life: [0.5, 0.9], size: [0.1, 0.22], colors: ['#bfe8ff', '#8fd2ff', '#ffffff'], shape: 'drop' });
-    this.glow.emit({ count: 8, position: this.tmp.copy(pos).setY(0.6), spread: 1.2, speed: [1, 2], up: 1, drag: 2, life: [0.4, 0.6], size: [0.25, 0.4], colors: ['#d8f3ff', '#ffffff'], shape: 'sparkle', intensity: 1.3 });
+    this.solid.emit({ count: 34, position: this.tmp.copy(pos).setY(pos.y + 0.2), spread: 1.4, speed: [2.5, 5.5], up: 4.5, bias: [0, 0.8, 0.4], gravity: -14, drag: 0.6, life: [0.5, 0.9], size: [0.1, 0.22], colors: ['#bfe8ff', '#8fd2ff', '#ffffff'], shape: 'drop' });
+    this.glow.emit({ count: 8, position: this.tmp.copy(pos).setY(pos.y + 0.6), spread: 1.2, speed: [1, 2], up: 1, drag: 2, life: [0.4, 0.6], size: [0.25, 0.4], colors: ['#d8f3ff', '#ffffff'], shape: 'sparkle', intensity: 1.3 });
   }
 
   hearts(pos: THREE.Vector3, count = 5): void {
@@ -322,13 +322,41 @@ export class Vfx {
     this.glow.emit({ count: 40, position: pos, spread: 5, speed: [2, 6], up: 4, gravity: -2, drag: 1.4, life: [0.8, 1.6], size: [0.3, 0.6], colors: GOLD, shape: 'sparkle', spin: 4, intensity: 1.8 });
   }
 
-  /** Soft magic dust behind the car while driving. */
-  trail(dt: number, pos: THREE.Vector3, speed: number): void {
+  /** Little dust puff when the car lands after a hop. */
+  puff(pos: THREE.Vector3): void {
+    this.solid.emit({ count: 8, position: this.tmp.copy(pos).setY(pos.y + 0.2), spread: 1.5, speed: [0.5, 1.4], up: 0.5, gravity: 0.4, drag: 3, life: [0.35, 0.6], size: [0.35, 0.6], grow: 1.7, colors: ['#fff4ee', '#ffe3ec'], shape: 'dot' });
+  }
+
+  /** Burst of sparkles falling from a welcome arch. */
+  gateSparkle(pos: THREE.Vector3): void {
+    this.glow.emit({ count: 34, position: pos, spread: 8, speed: [1, 3], up: 0.5, gravity: -3, drag: 1.2, life: [0.8, 1.5], size: [0.3, 0.6], colors: GOLD, shape: 'sparkle', spin: 3, intensity: 1.7 });
+    this.solid.emit({ count: 26, position: pos, spread: 8, speed: [1, 3], up: 1, gravity: -4, drag: 1.4, life: [1.4, 2.2], size: [0.14, 0.24], colors: CONFETTI, shape: 'confetti', spin: 6, flutter: true });
+  }
+
+  /** Soft magic dust behind the car while driving. `heading` is the road direction. */
+  trail(dt: number, pos: THREE.Vector3, speed: number, heading = 0): void {
     this.trailAccumulator += dt * Math.min(1, speed / 8) * 26;
     while (this.trailAccumulator >= 1) {
       this.trailAccumulator -= 1;
-      this.tmp.set(pos.x + (Math.random() - 0.5) * 1.4, 0.45 + Math.random() * 0.4, pos.z + 1.9);
+      const side = (Math.random() - 0.5) * 1.4;
+      const cos = Math.cos(heading);
+      const sin = Math.sin(heading);
+      this.tmp.set(pos.x + cos * side - sin * 1.9, pos.y + 0.45 + Math.random() * 0.4, pos.z + sin * side + cos * 1.9);
       this.glow.emit({ count: 1, position: this.tmp, spread: 0.2, speed: [0.2, 0.6], up: 0.5, drag: 2, life: [0.35, 0.65], size: [0.12, 0.24], colors: ['#ffd6ea', '#fff3c2', '#ffffff'], shape: 'sparkle', intensity: 1.2 });
+    }
+  }
+
+  /** Slow golden motes drifting between the trees up ahead. */
+  fireflies(dt: number, pos: THREE.Vector3, heading: number): void {
+    this.fireflyAccumulator += dt * 16;
+    while (this.fireflyAccumulator >= 1) {
+      this.fireflyAccumulator -= 1;
+      const ahead = 8 + Math.random() * 34;
+      const side = (Math.random() - 0.5) * 22;
+      const cos = Math.cos(heading);
+      const sin = Math.sin(heading);
+      this.tmp.set(pos.x + cos * side + sin * ahead, pos.y + 0.6 + Math.random() * 3.2, pos.z + sin * side - cos * ahead);
+      this.glow.emit({ count: 1, position: this.tmp, speed: [0.15, 0.5], up: 0.2, drag: 0.6, life: [1.6, 2.8], size: [0.1, 0.2], colors: ['#fff3a8', '#ffe07a', '#d8ffb0'], shape: 'dot', intensity: 1.7 });
     }
   }
 

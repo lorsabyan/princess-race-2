@@ -4,6 +4,7 @@ import { Sky } from './view/Sky';
 import { Lighting, SUN_DIR } from './view/Lighting';
 import { CameraRig } from './view/CameraRig';
 import { WorldView } from './view/WorldView';
+import { Air } from './view/Air';
 import { Vfx } from './view/Vfx';
 import { Input, type InputAction } from './input/Input';
 import { AudioEngine } from './audio/Audio';
@@ -11,12 +12,23 @@ import { loadModelLibrary, type LibraryReport } from './models/library';
 import type { Backdrop, CarRig, Landmark, ModelLibrary, PrincessHome, PrincessRig } from './models/contracts';
 import { generateLevel } from './sim/level';
 import { Sim, type SimEvent } from './sim/Sim';
-import { TUNING } from './sim/config';
+import { TUNING, type ObstacleKind } from './sim/config';
+import { Landscape } from './sim/landscape';
+import { areaAt } from './sim/route';
+import { newRoadPoint } from './sim/track';
+import { LOOK_NOW, REDUCED_MOTION } from './view/look';
+import type { RoadWorld } from './view/warp';
 import { worldUniforms } from './models/kit/materials';
-import { PAL } from './models/kit/palette';
 import { loadSave, ui, writeSave } from '../app/state';
 
 const STEP = 1 / 60;
+/** Obstacles that hop or boing when the horn sounds. */
+const HONK_REACTS: ReadonlySet<ObstacleKind> = new Set<ObstacleKind>(['ducks', 'sheep', 'mushrooms']);
+/** Tiny-planet bend while driving; gentler for the celebration so the castle stands tall. */
+const DRIVE_BEND = 0.0003;
+const FINISH_BEND = 0.00015;
+/** How high the car hops over a road hump. */
+const HOP_HEIGHT = REDUCED_MOTION ? 0.25 : 0.72;
 const params = new URLSearchParams(location.search);
 /** QA only: ?timescale=3 runs the whole game faster (full-level tests). */
 const TIMESCALE = Math.max(0.1, Math.min(8, Number(params.get('timescale')) || 1));
@@ -26,6 +38,7 @@ type Mode = 'loading' | 'title' | 'intro' | 'drive' | 'finish' | 'results';
 declare global {
   interface Window {
     __ready?: boolean;
+    __threeReady?: boolean;
     __GAME__?: {
       stats: () => Record<string, unknown>;
       game: Game;
@@ -53,13 +66,14 @@ function smooth(t: number): number {
  */
 export class Game {
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(52, 1, 0.1, 900);
+  readonly camera = new THREE.PerspectiveCamera(52, 1, 0.1, 1100);
   readonly stage: Stage;
   readonly audio = new AudioEngine();
   private readonly sky: Sky;
   private readonly lighting: Lighting;
   private readonly cam: CameraRig;
   private readonly vfx = new Vfx();
+  private readonly air = new Air(SUN_DIR);
   private readonly input: Input;
   private lib!: ModelLibrary;
   private libReport: LibraryReport = { real: [], placeholder: [] };
@@ -69,6 +83,11 @@ export class Game {
   private castle!: Landmark;
   private backdrop!: Backdrop;
   private world: WorldView | null = null;
+  private road: RoadWorld | null = null;
+  private readonly roadPoint = newRoadPoint();
+  private readonly skyFrom = { x: 0, y: 0, z: 0 };
+  private readonly skyTo = { x: 0, y: 0, z: 0 };
+  private readonly skyLook = new THREE.Vector3();
   private sim: Sim | null = null;
   private mode: Mode = 'loading';
   private modeTime = 0;
@@ -85,6 +104,8 @@ export class Game {
   private readonly walkEnd = new THREE.Vector3();
   private readonly titleTarget = new THREE.Vector3(-0.9, 1.0, 0.2);
   private seated = false;
+  /** QA warps (?at=) jump the camera straight to the car instead of easing there. */
+  private snapCamera = false;
   private introSkipped = false;
   private titleWave = 2.5;
   private resultsConfetti = 0;
@@ -96,6 +117,7 @@ export class Game {
   private frozen = false;
 
   constructor(canvas: HTMLCanvasElement) {
+    window.__threeReady = false;
     this.level = Number(params.get('level')) || this.save.level;
     ui.level.value = this.level;
     ui.bestStars.value = this.save.bestStars;
@@ -107,11 +129,12 @@ export class Game {
     this.sky = new Sky({ sunDir: SUN_DIR });
     this.scene.add(this.sky.group);
     this.scene.environment = Sky.bakeEnvironment(this.stage.renderer, SUN_DIR);
-    this.scene.environmentIntensity = 0.8;
-    this.scene.fog = new THREE.Fog(PAL.skyHorizon, 85, 260);
+    this.scene.environmentIntensity = LOOK_NOW.env;
+    this.scene.fog = new THREE.Fog(LOOK_NOW.fog, 120, 420);
     this.lighting = new Lighting(this.scene);
     this.stage.shadowLights.push(this.lighting.sun);
-    this.scene.add(this.vfx.group);
+    this.scene.add(this.vfx.group, this.air.group);
+    worldUniforms.uCloudShade.value = LOOK_NOW.shade.cloud;
 
     this.input = new Input(canvas, (action) => this.onAction(action));
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -167,6 +190,7 @@ export class Game {
     this.audio.dispose();
     this.world?.dispose();
     this.vfx.dispose();
+    this.air.dispose();
     this.stage.dispose();
   }
 
@@ -204,12 +228,13 @@ export class Game {
     this.tmp.copy(this.carPos).add(new THREE.Vector3(0, 2.3, -0.4));
     this.vfx.hearts(this.tmp, 4);
     if (this.seated) this.princess.wave();
-    // Ducks nearby hop out of the way. Silly and satisfying.
+    // Ducks and sheep nearby hop out of the way, toadstools boing, windmills whirl. Silly and satisfying.
     if (this.sim && this.world) {
       for (const o of this.sim.obstacles) {
         const ahead = this.sim.car.z - o.z;
-        if (o.kind === 'ducks' && ahead > 0 && ahead < 30) this.world.obstacle(o.id)?.react(o.x < this.sim.car.x ? -1 : 1);
+        if (HONK_REACTS.has(o.kind) && ahead > 0 && ahead < 30) this.world.obstacle(o.id)?.react(o.x < this.sim.car.x ? -1 : 1);
       }
+      this.world.honk(this.sim.distance);
     }
   }
 
@@ -252,11 +277,15 @@ export class Game {
     this.world?.dispose();
     const data = generateLevel(level);
     this.sim = new Sim(data);
-    const world = new WorldView(this.lib, data, this.home, this.castle);
+    const road: RoadWorld = { track: data.track, land: new Landscape(data.track, data.seed) };
+    this.road = road;
+    const world = new WorldView(this.lib, data, this.home, this.castle, road);
     this.world = world;
     this.scene.add(world.group);
+    world.buildLand(SUN_DIR, this.scene.fog as THREE.Fog);
     await world.build(onProgress);
     ui.totalCoins.value = this.sim.totalCoins;
+    ui.areaMarks.value = data.track.route.slice(1).map((r) => ({ area: r.area, at: r.from / data.length }));
   }
 
   private resetLevelState(): void {
@@ -271,6 +300,8 @@ export class Game {
     ui.screen.value = 'title';
     ui.coins.value = 0;
     ui.progress.value = 0;
+    ui.areaFlash.value = null;
+    this.audio.setArea('town');
     this.audio.playSong('title');
     this.seated = false;
     this.driveStarted = false;
@@ -293,9 +324,8 @@ export class Game {
     this.princess.root.rotation.set(0, Math.PI * 0.9, 0);
     this.input.enabled = false;
     this.input.targetX = 0;
-    worldUniforms.uCurveOrigin.value = 0;
-    worldUniforms.uCurveY.value = 0.0016;
-    worldUniforms.uCurveX.value = 0;
+    worldUniforms.uCurveOrigin.value.set(0, 0);
+    worldUniforms.uCurveY.value = DRIVE_BEND;
     this.cam.followLambda = 2.2;
     this.cam.targetLambda = 3;
     this.cam.orbit(this.titleTarget, 6.8, 1.3, Math.PI - 0.55, 40, this.stage.aspect);
@@ -304,6 +334,7 @@ export class Game {
     const cp = this.camera.position;
     this.princess.root.rotation.y = Math.atan2(-(cp.x - this.walkStart.x), -(cp.z - this.walkStart.z));
     window.__ready = !params.has('freeze') && !params.has('autoplay');
+    window.__threeReady = window.__ready;
   }
 
   private startIntro(quick: boolean): void {
@@ -320,7 +351,11 @@ export class Game {
     ui.screen.value = 'play';
     this.seatPrincess();
     this.sim!.start();
-    if (params.has('at')) this.sim!.warpTo(Number(params.get('at')));
+    if (params.has('at')) {
+      this.sim!.warpTo(Number(params.get('at')));
+      this.prevCar.set(this.sim!.car.x, this.sim!.car.z);
+      this.snapCamera = true;
+    }
     this.input.enabled = true;
     this.input.targetX = 0;
     this.driveStarted = true;
@@ -372,6 +407,7 @@ export class Game {
       // Let the UI settle for a couple of frames before signalling readiness.
       window.setTimeout(() => {
         window.__ready = true;
+        window.__threeReady = true;
       }, 120);
     }
   };
@@ -403,7 +439,7 @@ export class Game {
       this.princess.wave();
       this.titleWave = 6 + Math.random() * 3;
     }
-    const angle = Math.PI - 0.55 + Math.sin(this.time * 0.13) * 0.28;
+    const angle = Math.PI - 0.55 + (REDUCED_MOTION ? 0 : Math.sin(this.time * 0.13) * 0.28);
     this.cam.orbit(this.titleTarget, 6.8, 1.3, angle, 40, this.stage.aspect);
     // She turns to face the camera.
     const p = this.princess.root.position;
@@ -428,7 +464,7 @@ export class Game {
         if (k > 0.5) p.setPose('sit');
         if (t >= 0.7) this.seatPrincess();
       }
-      this.cam.chase(this.carPos, 0, 0, 0, this.stage.aspect);
+      this.cam.chase(this.road!.track, 0, 0, 0, 0, this.stage.aspect);
       if (t > 0.9) this.startDrive();
     } else {
       // 1) walk to the car door, 2) hop in, 3) wave, 4) go.
@@ -456,9 +492,9 @@ export class Game {
           this.seatPrincess();
           p.wave();
         }
-        this.cam.chase(this.carPos, 0, 0, 0, this.stage.aspect);
+        this.cam.chase(this.road!.track, 0, 0, 0, 0, this.stage.aspect);
       } else {
-        this.cam.chase(this.carPos, 0, 0, 0, this.stage.aspect);
+        this.cam.chase(this.road!.track, 0, 0, 0, 0, this.stage.aspect);
       }
       if (t > walkDur + hopDur + 1.0) this.startDrive();
     }
@@ -499,13 +535,13 @@ export class Game {
     const sim = this.sim!;
     switch (e.type) {
       case 'coin':
-        this.vfx.coin(this.tmp.set(e.x, TUNING.coinHover, e.z), e.combo);
+        this.vfx.coin(this.roadSpot(e.x, TUNING.coinHover, e.z), e.combo);
         this.audio.coin(e.combo);
         ui.coins.value = sim.collected;
         ui.coinPulse.value += 1;
         break;
       case 'gem':
-        this.vfx.gem(this.tmp.set(e.x, TUNING.coinHover + 0.2, e.z));
+        this.vfx.gem(this.roadSpot(e.x, TUNING.coinHover + 0.2, e.z));
         this.audio.gem();
         this.princess.setMood('joy', 1.4);
         ui.coins.value = sim.collected;
@@ -514,7 +550,9 @@ export class Game {
         break;
       case 'bump':
         this.vfx.bump(this.carPos);
-        this.audio.bump();
+        if (e.kind === 'sheep') this.audio.baa();
+        else if (e.kind === 'mushrooms') this.audio.boing();
+        else this.audio.bump();
         this.cam.addShake(0.4);
         this.princess.setMood('surprised', 1.1);
         this.world?.obstacle(e.obstacleId)?.react(e.side === 1 ? -1 : 1);
@@ -527,6 +565,22 @@ export class Game {
         this.princess.setMood('joy', 1.2);
         this.world?.obstacle(e.obstacleId)?.react(1);
         break;
+      case 'hop':
+        this.audio.whee();
+        this.princess.setMood('joy', 1);
+        break;
+      case 'land':
+        this.vfx.puff(this.carPos);
+        this.audio.land();
+        break;
+      case 'area': {
+        this.audio.setArea(e.area);
+        this.audio.areaJingle(e.area);
+        this.vfx.gateSparkle(this.roadSpot(0, 7, sim.car.z - 1.4));
+        ui.areaFlash.value = e.area;
+        ui.areaPulse.value += 1;
+        break;
+      }
       case 'finish':
         this.setMode('finish');
         ui.screen.value = 'finish';
@@ -535,7 +589,7 @@ export class Game {
         this.audio.fanfare();
         this.princess.cheer();
         this.princess.setMood('joy', 5);
-        this.vfx.confetti(this.tmp.set(0, 9, -sim.level.length - 2), 220);
+        this.vfx.confetti(this.roadSpot(0, 9, -sim.level.length - 2), 220);
         break;
       case 'stopped':
         window.setTimeout(() => this.showResults(), 900 / TIMESCALE);
@@ -543,6 +597,12 @@ export class Game {
       default:
         break;
     }
+  }
+
+  /** World position of a point given in straight road coordinates. */
+  private roadSpot(x: number, y: number, z: number): THREE.Vector3 {
+    this.road!.track.toWorld(x, y, -z, this.tmp);
+    return this.tmp;
   }
 
   private showResults(): void {
@@ -578,57 +638,83 @@ export class Game {
       const alpha = Math.min(1, this.accumulator / STEP);
       const x = THREE.MathUtils.lerp(this.prevCar.x, car.x, alpha);
       const z = THREE.MathUtils.lerp(this.prevCar.y, car.z, alpha);
-      this.carPos.set(x, 0, z);
+      const track = this.road!.track;
+      const frame = track.sample(-z, this.roadPoint);
+      track.toWorld(x, 0, -z, this.carPos);
       const steer = THREE.MathUtils.clamp(car.vx / 6, -1, 1);
       const root = this.car.root;
+      // Up and over the hump: nose up on the way, down on the way to landing.
+      const hopT = car.hop > 0 ? 1 - car.hop / TUNING.hopTime : 0;
+      const arc = Math.sin(hopT * Math.PI);
       root.position.copy(this.carPos);
-      root.rotation.y = -car.vx * 0.045;
-      root.rotation.z = car.vx * 0.012 + Math.sin(this.time * 32) * car.bump * 0.05;
+      root.position.y += arc * HOP_HEIGHT;
+      root.rotation.order = 'YXZ';
+      root.rotation.y = -frame.heading - car.vx * 0.045;
+      root.rotation.x = Math.atan(frame.grade) + (car.hop > 0 ? Math.cos(hopT * Math.PI) * 0.16 : 0);
+      root.rotation.z = car.vx * 0.012 + frame.curvature * 3 + (REDUCED_MOTION ? 0 : Math.sin(this.time * 32) * car.bump * 0.05);
       this.car.update(dt, { time: this.time, speed: car.speed, steer, bump: car.bump });
       this.princess.update(dt, { time: this.time, steer, speed: car.speed, walk: 0 });
-      worldUniforms.uCurveOrigin.value = z;
-      worldUniforms.uCurveX.value = 0.00045 * Math.sin(sim.distance * 0.0065);
+      worldUniforms.uCurveOrigin.value.set(this.carPos.x, this.carPos.z);
 
       if (this.mode === 'drive' && params.get('cam') === 'hero') {
         // QA/showcase camera: 3/4 front view riding along with the car.
         this.cam.followLambda = 6;
         this.cam.targetLambda = 8;
-        this.cam.orbit(this.tmp.copy(this.carPos).setY(1.0), 6.2, 0.9, Math.PI * 0.78, 42, this.stage.aspect);
+        this.cam.orbit(this.tmp.copy(this.carPos).setY(this.carPos.y + 1.0), 6.2, 0.9, Math.PI * 0.78 - frame.heading, 42, this.stage.aspect);
       } else if (this.mode === 'drive' && params.get('cam') === 'side') {
         this.cam.followLambda = 6;
         this.cam.targetLambda = 8;
-        this.cam.orbit(this.tmp.copy(this.carPos).setY(1.1), 7.5, 1.4, Math.PI * 0.42, 40, this.stage.aspect);
+        this.cam.orbit(this.tmp.copy(this.carPos).setY(this.carPos.y + 1.1), 7.5, 1.4, Math.PI * 0.42 - frame.heading, 40, this.stage.aspect);
+      } else if (this.mode === 'drive' && params.get('cam') === 'sky') {
+        // QA/showcase camera: high above the road, looking along it.
+        this.cam.followLambda = 6;
+        this.cam.targetLambda = 8;
+        track.toWorld(0, 46, -z - 46, this.skyFrom);
+        track.toWorld(0, 0, -z + 90, this.skyTo);
+        this.cam.look(this.tmp.set(this.skyFrom.x, this.skyFrom.y, this.skyFrom.z), this.skyLook.set(this.skyTo.x, this.skyTo.y, this.skyTo.z), 50);
       } else if (this.mode === 'drive') {
-        this.cam.chase(this.carPos, x, steer, car.speed, this.stage.aspect);
+        this.cam.chase(track, -z, x, steer, car.speed, this.stage.aspect);
       } else {
         // Swing around to the front for the celebration.
         const t = this.mode === 'finish' ? this.modeTime : this.modeTime + 3;
-        const angle = THREE.MathUtils.lerp(0.25, Math.PI * 0.82, smooth((t - 0.4) / 3.2)) + Math.max(0, t - 3.6) * 0.06;
+        const angle = THREE.MathUtils.lerp(0.25, Math.PI * 0.82, smooth((t - 0.4) / 3.2)) + Math.max(0, t - 3.6) * 0.06 - frame.heading;
         this.cam.followLambda = 2.2;
         this.cam.targetLambda = 3;
         // Portrait screens widen the orbit a lot, so start closer and higher to clear courtyard props.
         const portrait = this.stage.aspect < 1;
         if (this.mode === 'results') {
           // Aim below the car so she celebrates in the upper half, above the results card.
-          this.cam.orbit(this.tmp.copy(this.carPos).setY(portrait ? -1.3 : -0.7), portrait ? 5.6 : 8.2, portrait ? 4.8 : 3.2, angle, 44, this.stage.aspect);
+          this.cam.orbit(this.tmp.copy(this.carPos).setY(this.carPos.y + (portrait ? -1.3 : -0.7)), portrait ? 5.6 : 8.2, portrait ? 4.8 : 3.2, angle, 44, this.stage.aspect);
         } else {
-          this.cam.orbit(this.tmp.copy(this.carPos).setY(1.2), portrait ? 5.2 : 7.4, portrait ? 2.6 : 1.6, angle, 44, this.stage.aspect);
+          this.cam.orbit(this.tmp.copy(this.carPos).setY(this.carPos.y + 1.2), portrait ? 5.2 : 7.4, portrait ? 2.6 : 1.6, angle, 44, this.stage.aspect);
         }
       }
-      if (car.speed > 1 && this.mode !== 'results') this.vfx.trail(dt, this.carPos, car.speed);
+      if (car.speed > 1 && this.mode !== 'results') this.vfx.trail(dt, this.carPos, car.speed, frame.heading);
+      if (areaAt(track.route, -z) === 'forest') this.vfx.fireflies(dt, this.carPos, frame.heading);
       this.audio.setEngine(car.speed, !ui.paused.value && car.speed > 0.2);
     }
 
+    if (this.snapCamera && moving) {
+      this.snapCamera = false;
+      this.cam.snap();
+    }
     this.cam.update(realDt > 0 && dt === 0 ? 0 : dt);
-    this.lighting.follow(this.carPos);
+    // The shadow box sits a little ahead of the car, where the player is looking.
+    const ahead = this.road!.track.sample(-sim.car.z, this.roadPoint);
+    this.tmp.set(this.carPos.x + Math.sin(ahead.heading) * 12, this.carPos.y, this.carPos.z - Math.cos(ahead.heading) * 12);
+    this.lighting.follow(this.tmp);
     // Gentler bend for the celebration so the castle stands tall behind the car.
-    const bend = this.mode === 'finish' || this.mode === 'results' ? 0.0005 : 0.0016;
+    const bend = this.mode === 'finish' || this.mode === 'results' ? FINISH_BEND : DRIVE_BEND;
     worldUniforms.uCurveY.value += (bend - worldUniforms.uCurveY.value) * (1 - Math.exp(-1.5 * dt));
     // While chasing the car nothing behind the camera is visible; the title camera looks back up the street.
-    this.world?.update(dt, this.time, sim, moving ? this.carPos.z : 0, this.mode === 'drive' ? 14 : 125);
+    this.world?.update(dt, this.time, sim, moving ? sim.car.z : 0, this.mode === 'drive' ? 14 : 125, this.stage.tier);
     this.backdrop.update(this.camera);
     this.sky.update(this.camera, this.time);
     this.vfx.update(dt, this.time);
+    const here = areaAt(this.road!.track.route, -sim.car.z);
+    this.air.update(dt, this.carPos, ahead.heading, here, this.stage.tier);
+    worldUniforms.uCloudShift.value.set(this.time * 2.7, this.time * 1.3);
+    worldUniforms.uDapple.value += ((here === 'forest' ? LOOK_NOW.shade.canopy : 0) - worldUniforms.uDapple.value) * (1 - Math.exp(-1.4 * dt));
   }
 
   // ---------------------------------------------------------------------------

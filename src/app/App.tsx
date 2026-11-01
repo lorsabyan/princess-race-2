@@ -15,6 +15,7 @@ import {
   ReplayIcon,
   SoundIcon,
   StarIcon,
+  AreaIcon,
 } from './icons';
 
 interface Props {
@@ -67,12 +68,12 @@ function Loading() {
 function Title({ game }: Props) {
   return (
     <div class="screen title-screen">
-      <div class="logo" aria-label="Princess Race 2">
+      <div class="logo" aria-label="Princess Race 3">
         <div class="logo-crown">
           <CrownIcon />
         </div>
         <div class="logo-princess">Princess</div>
-        <div class="logo-sub">Race 2</div>
+        <div class="logo-sub">Race 3</div>
       </div>
       <RoundButton label="Play" size={128} className="play-btn pulse" onPress={() => game.play()}>
         <PlayIcon />
@@ -130,6 +131,11 @@ function ProgressRoad() {
       </span>
       <div class="progress-track">
         <div class="progress-fill" style={{ width: `${p * 100}%` }} />
+        {ui.areaMarks.value.map((m) => (
+          <span key={m.area} class={`progress-mark ${p >= m.at ? 'reached' : ''}`} style={{ left: `${m.at * 100}%` }}>
+            <AreaIcon area={m.area} />
+          </span>
+        ))}
         <div class="progress-car" style={{ left: `${p * 100}%` }}>
           <CarIcon />
         </div>
@@ -137,6 +143,25 @@ function ProgressRoad() {
       <span class="progress-castle">
         <CastleIcon />
       </span>
+    </div>
+  );
+}
+
+/** A big picture of the area just entered, for little ones who can't read a sign. */
+function AreaFlash() {
+  const pulse = ui.areaPulse.value;
+  const area = ui.areaFlash.value;
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (pulse === 0) return;
+    setShown(true);
+    const id = window.setTimeout(() => setShown(false), 1500);
+    return () => window.clearTimeout(id);
+  }, [pulse]);
+  if (!shown || !area) return null;
+  return (
+    <div key={pulse} class="area-flash" aria-hidden="true">
+      <AreaIcon area={area} />
     </div>
   );
 }
@@ -169,6 +194,7 @@ function Hud({ game }: Props) {
         </div>
       )}
       {flash > 0 && <div key={flash} class="gem-flash" />}
+      <AreaFlash />
     </div>
   );
 }

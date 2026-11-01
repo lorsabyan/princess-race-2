@@ -38,6 +38,9 @@ export interface PoseRanges {
   stand: { start: number; count: number };
 }
 
+/** Per-vertex extras a part may bring along (name, size). Parts without them read zero. */
+const EXTRA_ATTRIBUTES: Record<string, number> = { hair: 4, flutter: 1 };
+
 const tmpColor = new THREE.Color();
 const tmpMatrix = new THREE.Matrix4();
 
@@ -55,7 +58,7 @@ export class SkinBuilder {
   add(source: THREE.BufferGeometry, opts: SkinPartOptions): this {
     let g = source.clone();
     for (const name of Object.keys(g.attributes)) {
-      if (name === 'position' || name === 'normal' || name === 'color') continue;
+      if (name === 'position' || name === 'normal' || name === 'color' || name in EXTRA_ATTRIBUTES) continue;
       g.deleteAttribute(name);
     }
     if (!g.attributes.normal) g.computeVertexNormals();
@@ -152,6 +155,13 @@ export class SkinBuilder {
       sit: { start: 0, count: nSit + nCommon },
       stand: { start: nSit, count: nCommon + nStand },
     };
+    // Every part needs the same attributes to merge, so parts without an extra one get zeros.
+    for (const [name, size] of Object.entries(EXTRA_ATTRIBUTES)) {
+      if (!ordered.some((p) => p.g.attributes[name])) continue;
+      for (const { g } of ordered) {
+        if (!g.attributes[name]) g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * size), size));
+      }
+    }
     const merged = mergeGeometries(
       ordered.map((p) => p.g),
       false,

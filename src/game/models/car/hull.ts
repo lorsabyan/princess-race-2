@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { blend, ellipsoid, mirrorX, move, planeBelow, roundBox, subtract, union, type SdfNode } from '../kit/sdf';
+import { blend, ellipsoid, mirrorX, move, planeBelow, rotate, roundBox, subtract, union, type SdfNode } from '../kit/sdf';
 import { meshSdf } from '../kit/mesher';
 import { smoothstep } from '../kit/geo';
 import { PAL } from '../kit/palette';
 import { PBR } from './carMaterials';
 import { ROLE_FIXED, ROLE_INTERIOR, ROLE_PAINT, type RecolorInfo } from './assembler';
 import { bakeSdfAo, custom, xCylinder, zCylinder } from './sdfExtra';
-import { CAR } from './layout';
+import { decimate } from '../kit/decimate';
+import { CAR, COVE } from './layout';
 
 export interface HullBuild {
   geometry: THREE.BufferGeometry;
@@ -87,16 +88,16 @@ function smax(a: number, b: number, k: number): number {
 }
 
 const topLine = profile([
-  [-1.66, 0.68],
-  [-1.4, 0.73],
-  [-1.05, 0.8],
-  [-0.7, 0.87],
+  [-1.66, 0.7],
+  [-1.4, 0.76],
+  [-1.05, 0.83],
+  [-0.7, 0.89],
   [-0.42, 0.93],
   [0.1, 0.93],
   [0.6, 0.93],
-  [0.95, 0.9],
-  [1.25, 0.82],
-  [1.52, 0.68],
+  [0.95, 0.92],
+  [1.25, 0.88],
+  [1.52, 0.8],
 ]);
 
 export function frameAt(z: number, out: Frame): Frame {
@@ -106,11 +107,11 @@ export function frameAt(z: number, out: Frame): Frame {
   // planes with a smooth max, giving the nose and tail a soft, well-behaved rounded face.
   if (z < Z_NOSE) {
     const s = Math.min(TIP_S, (Z_NOSE - z) / (Z_NOSE - Z_NOSE_TIP));
-    f = Math.pow(Math.max(0, 1 - Math.pow(s, 2.3)), 1 / 2.3);
+    f = Math.pow(Math.max(0, 1 - Math.pow(s, 2.7)), 1 / 2.7);
     c = NOSE_Y;
   } else if (z > Z_TAIL) {
     const s = Math.min(TIP_S, (z - Z_TAIL) / (Z_TAIL_TIP - Z_TAIL));
-    f = Math.pow(Math.max(0, 1 - Math.pow(s, 2.1)), 1 / 2.1);
+    f = Math.pow(Math.max(0, 1 - Math.pow(s, 3.4)), 1 / 3.4);
     c = TAIL_Y;
   }
   const top = topLine(z);
@@ -152,11 +153,20 @@ export interface HullParts {
 
 export function hullField(): HullParts {
   const body0 = loftBody();
-  const fenderF = mirrorX(move(ellipsoid(0.27, 0.31, 0.6), 0.66, 0.63, CAR.axleF - 0.03));
-  const fenderR = mirrorX(move(ellipsoid(0.29, 0.34, 0.58), 0.65, 0.65, CAR.axleR));
+  // Long low fenders that flow into the body instead of bulging out of it.
+  const fenderF = mirrorX(move(ellipsoid(0.27, 0.235, 0.68), 0.66, 0.6, CAR.axleF - 0.03));
+  const fenderR = mirrorX(move(ellipsoid(0.28, 0.26, 0.7), 0.65, 0.6, CAR.axleR));
   const pods = mirrorX(move(zCylinder(0.12, 0.1, 0.05), 0.6, 0.72, -1.5));
-  let body: SdfNode = blend(0.2, body0, fenderF, fenderR);
+  // A crowned hood, so the fenders and hood read as one clean surface with no dent between them.
+  const hood = move(ellipsoid(0.56, 0.14, 0.74), 0, 0.72, -0.84);
+  // Tail fins: the car's signature from the chase camera.
+  const fin = mirrorX(move(rotate(ellipsoid(0.075, 0.2, 0.64), 0.2, 0, 0), 0.63, 0.81, 1.02));
+  let body: SdfNode = blend(0.2, body0, fenderF, fenderR, hood);
   body = blend(0.08, body, pods);
+  body = blend(0.09, body, fin);
+  // Scooped side panels.
+  const cove = mirrorX(move(ellipsoid(COVE.rx, COVE.ry, COVE.rz), COVE.x, COVE.y, COVE.z));
+  body = subtract(body, cove, 0.05);
 
   // Wheel wells.
   // Front wells reach further in (room for the steered tire); rear wells are shallower.
@@ -175,20 +185,22 @@ export function hullField(): HullParts {
   return { field: body, shell, cockpit };
 }
 
-export function buildHull(cell = 0.038): HullBuild {
+export function buildHull(cell = 0.03): HullBuild {
   const t0 = performance.now();
   const parts = hullField();
   const { field, shell, cockpit } = parts;
-  const geometry = meshSdf(field, {
+  const fine = meshSdf(field, {
     // The flat underside is never seen: start the grid just above it (saves ~20% triangles;
     // the body material casts shadows double-sided so the open bottom does not matter).
     min: [-1.08, BOTTOM + 0.018, -1.8],
-    max: [1.08, 1.12, 1.8],
+    max: [1.08, 1.2, 1.8],
     cell,
     project: 2,
     colors: { 0: '#ffffff' },
   });
-  geometry.deleteAttribute('wind');
+  fine.deleteAttribute('wind');
+  // Meshed finely for the crisp edges, then reduced: normals come from the field, so the paint stays smooth.
+  const geometry = decimate(fine, 22000);
   const pos = geometry.attributes.position.array as Float32Array;
   const nor = geometry.attributes.normal.array as Float32Array;
   const n = pos.length / 3;

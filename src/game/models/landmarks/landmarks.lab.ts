@@ -8,7 +8,7 @@ function curvePreview(): void {
   const q = new URLSearchParams(location.search);
   if (q.get('curve') !== '1') return;
   worldUniforms.uCurveY.value = Number(q.get('cy') ?? 0.0016);
-  worldUniforms.uCurveOrigin.value = Number(q.get('co') ?? 0);
+  worldUniforms.uCurveOrigin.value.set(0, Number(q.get('co') ?? 0));
 }
 import { createCastleGate } from './castleGate';
 import { createPrincessHome } from './princessHome';

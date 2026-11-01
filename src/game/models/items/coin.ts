@@ -76,6 +76,23 @@ export function createCoinGeometry(): THREE.BufferGeometry {
   return g;
 }
 
+/** Stand-in for coins far down the road: same size and colors, 1/30th of the triangles. */
+export function createFarCoinGeometry(): THREE.BufferGeometry {
+  const r = COIN_SIZE.diameter / 2;
+  const body = new THREE.CylinderGeometry(r, r, COIN_SIZE.thickness, 12, 1);
+  body.rotateX(Math.PI / 2);
+  const b = new ItemBuilder();
+  b.add(body, (x, y) => (Math.hypot(x, y) < r * 0.8 ? COL.field : COL.rim), SURF_RIM);
+  body.dispose();
+  const heart = reliefGeometry(heartOutline(0.47, 2), 0.02, 0.02);
+  b.add(heart, COL.heart, SURF_HEART, { p: [0, -0.004, COIN_SIZE.thickness / 2] });
+  b.add(heart, COL.heart, SURF_HEART, { p: [0, -0.004, -COIN_SIZE.thickness / 2], r: [0, Math.PI, 0] });
+  heart.dispose();
+  const g = b.build();
+  g.name = 'coin-far';
+  return g;
+}
+
 /** Shared polished-gold material (curved world, studio reflections, bright highlights bloom). */
 export function coinMaterial(): THREE.Material {
   return itemMaterial('coin', { envMap: itemEnvMap(), envMapIntensity: 1, glow: 1 });

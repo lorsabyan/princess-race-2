@@ -18,8 +18,10 @@ import {
   addDoorHearts,
   addGrille,
   addHeadlights,
+  addMirrors,
   addSeat,
   addSpare,
+  addTail,
   addTailLights,
   buildWindshield,
   platePlacement,
@@ -30,12 +32,29 @@ import { buildWheelGeometry } from './wheel';
 
 export type { CarRig, CarState } from '../contracts';
 
+/** Alpha falls off softly from a car-shaped middle to nothing at the edge. */
+function contactTexture(): THREE.CanvasTexture {
+  const w = 64;
+  const h = 112;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext('2d')!;
+  g.filter = 'blur(6px)';
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.roundRect(13, 12, w - 26, h - 24, 14);
+  g.fill();
+  return new THREE.CanvasTexture(canvas);
+}
+
 /**
- * Princess Coin Drive hero car: a bubbly pearl-pink retro roadster.
+ * Princess Coin Drive hero car: a pearl-pink 1950s convertible with tail fins.
  *
  * Hierarchy (all names are set on the objects):
  *   root                      (the game moves / yaws / rolls this)
  *   ├─ car-wheels             InstancedMesh, 4 road wheels (spin + steer)
+ *   ├─ car-contact            soft shade on the road
  *   └─ car-chassis            suspension bob, body roll and pitch
  *      ├─ car-squash          squash & stretch on bumps (origin on the ground)
  *      │   ├─ car-body        hull + all static trim (1 draw call, per-vertex PBR)
@@ -78,6 +97,8 @@ export function createCar(): CarRig {
   addCrown(ctx);
   addSpare(ctx, wheel);
   addDoorHearts(ctx);
+  addMirrors(ctx);
+  addTail(ctx, rear);
   addDeckCrown(ctx);
   const plateAt = platePlacement(rear);
   // Chrome plate frame.
@@ -113,6 +134,16 @@ export function createCar(): CarRig {
   bodyMesh.castShadow = true;
   bodyMesh.receiveShadow = true;
   squash.add(bodyMesh);
+
+  // A soft pool of shade under the car, so it sits on the road whatever the sun is doing.
+  const contactMap = contactTexture();
+  const contactMaterial = new THREE.MeshBasicMaterial({ map: contactMap, color: '#6a2f66', transparent: true, depthWrite: false, opacity: 0.62 });
+  const contactGeometry = new THREE.PlaneGeometry(2.5, 4.3);
+  contactGeometry.rotateX(-Math.PI / 2);
+  const contact = new THREE.Mesh(contactGeometry, contactMaterial);
+  contact.name = 'car-contact';
+  contact.position.y = 0.03;
+  root.add(contact);
 
   const lampMesh = new THREE.Mesh(glowGeometry, glowMaterial);
   lampMesh.name = 'car-lamps';
@@ -269,6 +300,9 @@ export function createCar(): CarRig {
       steeringGeometry.dispose();
       wheel.geometry.dispose();
       wheels.dispose();
+      contactGeometry.dispose();
+      contactMaterial.dispose();
+      contactMap.dispose();
       plate.dispose();
       pennant.dispose();
       material.dispose();

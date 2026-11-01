@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FOOTPRINTS, TUNING, levelSpec, starsFor } from '../src/game/sim/config';
 import { generateLevel, obstacleX } from '../src/game/sim/level';
+import { areaAt } from '../src/game/sim/route';
 import { Sim } from '../src/game/sim/Sim';
 
 const LEVELS = [1, 2, 3, 4, 5, 6, 8, 12];
@@ -181,5 +182,101 @@ describe('simulation', () => {
     expect(starsFor(55, 100)).toBe(2);
     expect(starsFor(85, 100)).toBe(3);
     expect(levelSpec(1).length).toBeLessThan(levelSpec(8).length);
+  });
+});
+
+describe('the road changes the drive', () => {
+  it.each(LEVELS)('level %i has humps, and coins float up over them', (level) => {
+    const data = generateLevel(level);
+    expect(data.track.hops.length).toBeGreaterThanOrEqual(3);
+    for (const hump of data.track.hops) {
+      const over = data.coins.filter((c) => Math.abs(-c.z - hump) < 1.6);
+      for (const c of over) expect(c.y!).toBeGreaterThan(TUNING.coinHover + 0.5);
+    }
+  });
+
+  it.each(LEVELS)('level %i keeps obstacles off humps and tight bends', (level) => {
+    const data = generateLevel(level);
+    for (const o of data.obstacles) {
+      for (const hump of data.track.hops) expect(Math.abs(-o.z - hump)).toBeGreaterThan(5);
+    }
+    const tight = data.obstacles.filter((o) => Math.abs(data.track.sample(-o.z).curvature) > 0.0095);
+    expect(tight.length).toBeLessThanOrEqual(1);
+  });
+
+  it.each(LEVELS)('level %i coin lines hug the inside of strong bends', (level) => {
+    const data = generateLevel(level);
+    let inside = 0;
+    let total = 0;
+    for (const c of data.coins) {
+      const bend = data.track.sample(-c.z).curvature;
+      if (Math.abs(bend) < 0.007) continue;
+      total += 1;
+      if (c.x * Math.sign(bend) > 0) inside += 1;
+    }
+    expect(total).toBeGreaterThan(5);
+    expect(inside / total).toBeGreaterThan(0.5);
+  });
+
+  it.each(LEVELS)('level %i meets the animals of each area', (level) => {
+    const data = generateLevel(level);
+    const kinds = (area: string) => new Set(data.obstacles.filter((o) => areaAt(data.track.route, -o.z) === area).map((o) => o.kind));
+    expect(kinds('meadow').has('sheep')).toBe(true);
+    expect(kinds('forest').has('mushrooms')).toBe(true);
+    expect(kinds('lake').has('ducks')).toBe(true);
+    expect(kinds('forest').has('sheep')).toBe(false);
+    expect(kinds('meadow').has('mushrooms')).toBe(false);
+  });
+
+  it('swoops downhill and eases uphill, without ever stalling', () => {
+    const data = generateLevel(1);
+    const sim = new Sim(data);
+    sim.start();
+    let fastest = 0;
+    let slowest = Infinity;
+    for (let i = 0; i < 60 * 240 && sim.phase === 'drive'; i += 1) {
+      coinChaser(sim);
+      sim.step(DT);
+      if (sim.time < 4) continue;
+      fastest = Math.max(fastest, sim.car.speed);
+      slowest = Math.min(slowest, sim.car.speed);
+    }
+    expect(fastest).toBeGreaterThan(data.speed * 1.1);
+    expect(slowest).toBeLessThan(data.speed * 0.97);
+    expect(slowest).toBeGreaterThan(data.speed * 0.8);
+  });
+
+  it('announces hops, landings and every area exactly once, in order', () => {
+    const data = generateLevel(3);
+    const sim = new Sim(data);
+    sim.start();
+    const seen: string[] = [];
+    for (let i = 0; i < 60 * 240 && sim.phase !== 'done'; i += 1) {
+      sim.step(DT);
+      for (const e of sim.events.splice(0)) {
+        if (e.type === 'hop' || e.type === 'land') seen.push(e.type);
+        if (e.type === 'area') seen.push(e.area);
+      }
+    }
+    expect(seen.filter((e) => e === 'hop').length).toBe(data.track.hops.length);
+    expect(seen.filter((e) => e === 'land').length).toBe(data.track.hops.length);
+    expect(seen.filter((e) => e !== 'hop' && e !== 'land')).toEqual(data.track.route.slice(1).map((r) => r.area));
+  });
+
+  it('a warp skips the hops and areas it jumps over', () => {
+    const data = generateLevel(1);
+    const sim = new Sim(data);
+    sim.start();
+    sim.warpTo(700);
+    sim.step(DT);
+    expect(sim.events.filter((e) => e.type === 'area' || e.type === 'hop')).toEqual([]);
+    expect(sim.car.hop).toBe(0);
+  });
+
+  it('hopping changes nothing but the view: a run still collects coins and finishes', () => {
+    const sim = new Sim(generateLevel(1));
+    run(sim, coinChaser);
+    expect(sim.phase).toBe('done');
+    expect(sim.car.hop).toBe(0);
   });
 });

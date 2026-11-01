@@ -106,6 +106,44 @@ function cloudCanopy(v: number, palette: readonly [string, string, string]): THR
   });
 }
 
+/** Round street-tree canopy: one ball of leaves with soft lumps. Centered at origin, radius ~1.2. */
+function roundCanopy(v: number, palette: readonly [string, string, string]): THREE.BufferGeometry {
+  return cachedGeo(`round:${v}:${palette.join()}`, () => {
+    const g = sdfShape(`round:${v}`, () => {
+      const rng = makeRng(7000 + v * 19);
+      const puffs: SdfNode[] = [sphere(0.92)];
+      const n = 7;
+      for (let i = 0; i < n; i += 1) {
+        // Spread over the ball, more around the shoulders than the underside.
+        const a = (i / n) * Math.PI * 2 + rng() * 0.7;
+        const up = -0.25 + (i % 3) * 0.42 + rng() * 0.2;
+        const ring = Math.sqrt(Math.max(0.1, 1 - up * up)) * 0.74;
+        puffs.push(move(sphere(0.42 + rng() * 0.14), Math.cos(a) * ring, up * 0.74, Math.sin(a) * ring));
+      }
+      puffs.push(move(sphere(0.46), rng() * 0.2 - 0.1, 0.76, rng() * 0.2 - 0.1));
+      const node = bumps(blend(0.26, ...puffs), 0.03, 6.5, v);
+      return meshSdf(node, { min: [-1.7, -1.5, -1.7], max: [1.7, 1.7, 1.7], cell: 0.37, project: 2, colors: { 0: '#ffffff' } });
+    });
+    return paintGeometry(g, foliagePaint(palette[0], palette[1], palette[2], 0, 1.2), (_x, y) => 0.03 + Math.max(0, y + 1) * 0.02);
+  });
+}
+
+/** A soft crown shape for trees seen from across a field: position and normal only, radius ~1.8. */
+export function distantCrown(): THREE.BufferGeometry {
+  const g = sdfShape('distantCrown', () => {
+    const rng = makeRng(8101);
+    const puffs: SdfNode[] = [sphere(1.05)];
+    for (let i = 0; i < 6; i += 1) {
+      const a = (i / 6) * Math.PI * 2 + rng() * 0.5;
+      puffs.push(move(sphere(0.6 + rng() * 0.2), Math.cos(a) * 0.86, -0.14 + rng() * 0.5, Math.sin(a) * 0.86));
+    }
+    puffs.push(move(sphere(0.66), 0.1, 0.84, -0.1));
+    return meshSdf(blend(0.4, ...puffs), { min: [-2, -1.3, -2], max: [2, 1.8, 2], cell: 0.44, project: 2, colors: { 0: '#ffffff' } });
+  });
+  g.deleteAttribute('color');
+  return g;
+}
+
 /** Wide, clustered blossom canopy with light speckles. */
 function blossomCanopy(v: number, palette: readonly [string, string, string]): THREE.BufferGeometry {
   return cachedGeo(`blossom:${v}:${palette.join()}`, () => {
@@ -198,16 +236,14 @@ export function lollipopTree(v: number, pal = 0, blossom = false): Prefab {
       const palette = blossom ? BLOSSOMS[pal % BLOSSOMS.length] : GREENS[pal % GREENS.length];
       const th = 1.75 + (v % 3) * 0.15;
       trunk(b, th + 0.4, 0.1);
-      const paint = foliagePaint(palette[0], palette[1], palette[2], 0, 1.2);
       const kind = v % 3;
-      const wind = (_x: number, y: number) => 0.03 + Math.max(0, y - th) * 0.02;
       if (kind === 0) {
-        b.add('foliage', P.sphere(1.2, 15, 10), paint, { p: [0, th + 1.0, 0], wind });
+        b.addColored('foliage', roundCanopy(v % 2, palette), { p: [0, th + 1.0, 0] });
       } else if (kind === 1) {
-        b.add('foliage', P.sphere(1.0, 14, 9), paint, { p: [0, th + 0.85, 0], wind });
-        b.add('foliage', P.sphere(0.72, 11, 7), paint, { p: [0, th + 2.05, 0], wind });
+        b.addColored('foliage', roundCanopy(v % 2, palette), { p: [0, th + 0.85, 0], s: 0.84 });
+        b.addColored('foliage', roundCanopy((v + 1) % 2, palette), { p: [0, th + 2.05, 0], s: 0.6 });
       } else {
-        b.add('foliage', P.sphere(1.1, 14, 10), paint, { p: [0, th + 1.15, 0], s: [0.92, 1.22, 0.92], wind });
+        b.addColored('foliage', roundCanopy(v % 2, palette), { p: [0, th + 1.15, 0], s: [0.88, 1.12, 0.88] });
       }
     }),
   );

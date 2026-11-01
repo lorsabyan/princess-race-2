@@ -184,7 +184,7 @@ export const items: LabItems = {
     if (params.get('curve') === '1') {
       // Re-enable the game's curved world (the lab disables it) to check every material bends.
       worldUniforms.uCurveY.value = 0.0016;
-      worldUniforms.uCurveOrigin.value = 5.5;
+      worldUniforms.uCurveOrigin.value.set(0, 5.5);
     }
     return {
       object: root,

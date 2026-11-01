@@ -13,6 +13,7 @@ const sources: Record<string, Record<string, Loader>> = {
   town: import.meta.glob<Record<string, unknown>>(['./town/*.ts', '!./town/*.lab.ts']),
   items: import.meta.glob<Record<string, unknown>>(['./items/*.ts', '!./items/*.lab.ts']),
   landmarks: import.meta.glob<Record<string, unknown>>(['./landmarks/*.ts', '!./landmarks/*.lab.ts']),
+  country: import.meta.glob<Record<string, unknown>>(['./country/*.ts', '!./country/*.lab.ts']),
 };
 
 const EXPORTS: Array<[keyof ModelLibrary, string, string]> = [
@@ -20,7 +21,10 @@ const EXPORTS: Array<[keyof ModelLibrary, string, string]> = [
   ['createPrincess', 'princess', 'createPrincess'],
   ['buildTownChunk', 'town', 'buildTownChunk'],
   ['chunkLength', 'town', 'CHUNK_LENGTH'],
+  ['buildCountryChunk', 'country', 'buildCountryChunk'],
+  ['createScenicRig', 'country', 'createScenicRig'],
   ['createCoinGeometry', 'items', 'createCoinGeometry'],
+  ['createFarCoinGeometry', 'items', 'createFarCoinGeometry'],
   ['coinMaterial', 'items', 'coinMaterial'],
   ['createHeartGemGeometry', 'items', 'createHeartGemGeometry'],
   ['heartGemMaterial', 'items', 'heartGemMaterial'],

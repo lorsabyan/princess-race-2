@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import { LOOK_NOW } from './look';
 
-/** Direction *toward* the sun: from the left, high, slightly behind the chase camera. */
-export const SUN_DIR = new THREE.Vector3(-0.5, 1.0, 0.32).normalize();
+/** Direction *toward* the sun. */
+export const SUN_DIR = new THREE.Vector3(...LOOK_NOW.sunDir).normalize();
 
 /**
  * Key + fill lighting. The sun casts soft PCF shadows inside a box that follows
@@ -12,15 +13,15 @@ export class Lighting {
   readonly sun: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
   readonly rim: THREE.DirectionalLight;
-  private readonly extent = { left: -20, right: 20, top: 34, bottom: -14 };
+  private readonly extent = { left: -27, right: 27, top: 27, bottom: -27 };
   private readonly lightSpace = new THREE.Matrix4();
   private readonly tmp = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
-    this.hemi = new THREE.HemisphereLight('#fff4f4', '#bfe6b0', 0.4);
+    this.hemi = new THREE.HemisphereLight(LOOK_NOW.hemi.sky, LOOK_NOW.hemi.ground, LOOK_NOW.hemi.intensity);
     scene.add(this.hemi);
 
-    this.sun = new THREE.DirectionalLight('#fff0dc', 2.35);
+    this.sun = new THREE.DirectionalLight(LOOK_NOW.sun.color, LOOK_NOW.sun.intensity);
     this.sun.castShadow = true;
     const cam = this.sun.shadow.camera;
     cam.left = this.extent.left;
@@ -35,18 +36,18 @@ export class Lighting {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.035;
     this.sun.shadow.radius = 3.5;
-    this.sun.shadow.intensity = 0.82;
+    this.sun.shadow.intensity = LOOK_NOW.sun.shadow;
     scene.add(this.sun);
     scene.add(this.sun.target);
 
     // Cool back-rim to separate the hero from the road.
-    this.rim = new THREE.DirectionalLight('#d9e8ff', 0.7);
+    this.rim = new THREE.DirectionalLight(LOOK_NOW.rim.color, LOOK_NOW.rim.intensity);
     this.rim.position.set(3, 4, -8);
     scene.add(this.rim);
     scene.add(this.rim.target);
   }
 
-  /** Center the shadow box on `focus` (usually the car), snapped to texel size. */
+  /** Center the shadow box on `focus` (a point just ahead of the car), snapped to texel size. */
   follow(focus: THREE.Vector3): void {
     const size = this.sun.shadow.mapSize.x;
     const texel = (this.extent.right - this.extent.left) / size;

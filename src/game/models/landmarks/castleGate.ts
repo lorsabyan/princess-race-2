@@ -129,7 +129,7 @@ export function createCastleGate(): Landmark {
     s.lineTo(-TX, GH);
     s.lineTo(-TX, 0);
     const g = extrude(s, GD, 0.07, 2, 40);
-    bag.matte.add(g, vgrad(C.wall, 1, GH), { p: [0, 0, GZ], shade: { y0: 0, y1: 3.2, k: 0.78 } });
+    bag.stone.add(g, vgrad(C.wall, 1, GH), { p: [0, 0, GZ], shade: { y0: 0, y1: 3.2, k: 0.78 } });
     g.dispose();
 
     // Stone base course left/right of the opening, front and back.
@@ -391,7 +391,7 @@ export function createCastleGate(): Landmark {
       const pl = len / pieces + (pieces > 1 ? 0.02 : 0);
       const px = x0 + (x1 - x0) * t;
       const pz = z0 + (z1 - z0) * t;
-      bag.matte.add(box(pl, WH, WT, 0.1), wallGrad, { p: [px, WH / 2, pz], r: [0, ry, 0], shade: { y0: 0, y1: 3, k: 0.8 } });
+      bag.stone.add(box(pl, WH, WT, 0.1), wallGrad, { p: [px, WH / 2, pz], r: [0, ry, 0], shade: { y0: 0, y1: 3, k: 0.8 } });
       bag.matte.add(box(pl, 1.0, WT + 0.26, 0.07), C.stone, { p: [px, 0.5, pz], r: [0, ry, 0], shade: { y0: 0, y1: 1, k: 0.84 } });
       bag.matte.add(box(pl, 0.32, WT + 0.34, 0.07), C.trim, { p: [px, WH - 0.14, pz], r: [0, ry, 0] });
     }
@@ -487,10 +487,11 @@ export function createCastleGate(): Landmark {
       g.dispose();
     }
     const ring = new THREE.RingGeometry(3.6, 3.98, 48).rotateX(-Math.PI / 2);
-    bag.metal.add(ring, C.gold, { p: [0, 0.075, mz] });
+    // Painted, not metal: flat gold on the ground would only mirror the green of the sky light.
+    bag.satin.add(ring, C.gold, { p: [0, 0.075, mz] });
     ring.dispose();
     const ring2 = new THREE.RingGeometry(1.35, 1.6, 32).rotateX(-Math.PI / 2);
-    bag.metal.add(ring2, C.gold, { p: [0, 0.078, mz] });
+    bag.satin.add(ring2, C.gold, { p: [0, 0.078, mz] });
     ring2.dispose();
     const disc = new THREE.CircleGeometry(1.35, 32).rotateX(-Math.PI / 2);
     bag.matte.add(disc, '#fff6ee', { p: [0, 0.075, mz] });

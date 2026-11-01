@@ -408,6 +408,60 @@ body {
   background: linear-gradient(90deg, #ffc1dd, var(--pink));
 }
 
+.progress-mark {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 1px 1px rgba(122, 33, 86, 0.3)) grayscale(0.35);
+  opacity: 0.85;
+  transition: transform 0.25s ease, opacity 0.25s ease, filter 0.25s ease;
+}
+
+.progress-mark.reached {
+  transform: translate(-50%, -50%) scale(1.2);
+  filter: drop-shadow(0 1px 1px rgba(122, 33, 86, 0.3));
+  opacity: 1;
+}
+
+.area-flash {
+  position: absolute;
+  left: 50%;
+  top: 20%;
+  width: clamp(84px, 16vmin, 132px);
+  height: clamp(84px, 16vmin, 132px);
+  padding: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 20px rgba(122, 33, 86, 0.22);
+  transform: translateX(-50%);
+  animation: area-flash 1.5s ease both;
+  pointer-events: none;
+}
+
+@keyframes area-flash {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.4);
+  }
+  14% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.12);
+  }
+  24% {
+    transform: translateX(-50%) scale(1);
+  }
+  78% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.86);
+  }
+}
+
 .progress-car {
   position: absolute;
   top: 50%;
@@ -660,7 +714,8 @@ body {
   .pulse,
   .loading-crown,
   .logo-crown,
-  .steer-hand {
+  .steer-hand,
+  .area-flash {
     animation: none;
   }
 }

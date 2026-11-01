@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { PAL } from '../kit/palette';
 import { PartBuilder, cone, cyl, sphere } from '../kit/geo';
 import { SUN_DIR } from '../../view/Lighting';
+import { LOOK_NOW } from '../../view/look';
 import { latheRings, rng } from './kit';
 import type { Backdrop } from './types';
 
 /**
  * Far scenery ring: three layers of soft rolling hills around the camera, tree
- * clusters on the nearest layer, and a faint castle silhouette on a hill far
- * down the road (-Z). NOT part of the curved world: it is unbent, unfogged, and
+ * clusters on the nearest layer, and a faint castle silhouette on a hill on the
+ * horizon in the real castle's direction. NOT part of the curved world: it is unbent, unfogged, and
  * bakes its own atmospheric perspective (farther = lighter / bluer).
  *
  * Everything is positioned on the GPU relative to the camera. Each layer samples
@@ -159,13 +160,16 @@ void main() {
 const CASTLE_VERT = /* glsl */ `
 uniform vec3 uCam;
 uniform float uDist;
-uniform float uFollowX;
 uniform float uSink;
+uniform vec2 uBearing;
 attribute vec3 color;
 varying vec3 vColor;
 void main() {
   vColor = color;
-  vec3 wp = position + vec3(uCam.x * uFollowX, -uSink * 75.0, uCam.z - uDist);
+  // Stays on the horizon in the castle's direction, turned to face the viewer.
+  vec2 d = uBearing;
+  vec3 p = vec3(position.x * -d.y - position.z * d.x, position.y, position.x * d.x - position.z * d.y);
+  vec3 wp = p + vec3(uCam.x + d.x * uDist, -uSink * 75.0, uCam.z + d.y * uDist);
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 }
 `;
@@ -232,7 +236,7 @@ function mergeWithKind(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
 /** Faint distant castle on its own hill, colors pre-hazed. Origin at the hill's center at ground level. */
 function castleSilhouette(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  const haze = lin(PAL.skyHorizon).lerp(lin(PAL.skyMid), 0.4);
+  const haze = lin(LOOK_NOW.sky.horizon).lerp(lin(LOOK_NOW.sky.mid), 0.4);
   const wall = '#f6c9dc';
   const roof = '#e592b8';
   const hill = '#a9c9d9';
@@ -271,7 +275,7 @@ export function createBackdrop(): Backdrop & { distantCastle: THREE.Object3D } {
   const group = new THREE.Group();
   group.name = 'backdrop';
 
-  const hazeColor = (mixAmt: number) => lin(PAL.skyHorizon).lerp(lin(PAL.skyMid), mixAmt);
+  const hazeColor = (mixAmt: number) => lin(LOOK_NOW.sky.horizon).lerp(lin(LOOK_NOW.sky.mid), mixAmt);
   const v3 = (k: 'r0' | 'r1' | 'amp' | 'base' | 'freq' | 'seed' | 'follow' | 'valley' | 'valleyW' | 'haze') =>
     new THREE.Vector3(LAYERS[0][k], LAYERS[1][k], LAYERS[2][k]);
   const uCam = { value: new THREE.Vector3() };
@@ -364,7 +368,7 @@ export function createBackdrop(): Backdrop & { distantCastle: THREE.Object3D } {
 
   // --- Distant castle on its hill, straight down the road.
   const castleMat = new THREE.ShaderMaterial({
-    uniforms: { uCam, uDist: { value: CASTLE_DIST }, uFollowX: { value: 0.96 }, uSink: { value: 0 } },
+    uniforms: { uCam, uDist: { value: CASTLE_DIST }, uSink: { value: 0 }, uBearing: { value: new THREE.Vector2(0, -1) } },
     vertexShader: CASTLE_VERT,
     fragmentShader: FRAG,
     fog: false,
@@ -394,10 +398,13 @@ export function createBackdrop(): Backdrop & { distantCastle: THREE.Object3D } {
       searchCooldown = 90;
     }
     let sink = 0;
-    if (realCastle && isShown(realCastle)) {
+    if (realCastle) {
       realCastle.getWorldPosition(castlePos);
-      const ahead = uCam.value.z - castlePos.z;
-      sink = 1 - THREE.MathUtils.smoothstep(ahead, 135, 185);
+      const dx = castlePos.x - uCam.value.x;
+      const dz = castlePos.z - uCam.value.z;
+      const away = Math.hypot(dx, dz) || 1;
+      castleMat.uniforms.uBearing.value.set(dx / away, dz / away);
+      if (isShown(realCastle)) sink = 1 - THREE.MathUtils.smoothstep(away, 135, 185);
     }
     castleMat.uniforms.uSink.value = sink;
   };

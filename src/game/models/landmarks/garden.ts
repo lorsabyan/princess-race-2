@@ -18,6 +18,14 @@ export function tileFloor(x0: number, x1: number, z0: number, z1: number, y: num
   const sx = (x1 - x0) / nx;
   const sz = (z1 - z0) / nz;
   const gap = Math.min(sx, sz) * 0.03;
+  // Grout: one sheet under the tiles, so the gaps never show what lies below.
+  const low = y - 0.012;
+  pos.push(x0, low, z0, x0, low, z1, x1, low, z1, x0, low, z0, x1, low, z1, x1, low, z0);
+  c.set(PAL.stoneDeep);
+  for (let k = 0; k < 6; k += 1) {
+    col.push(c.r, c.g, c.b);
+    nor.push(0, 1, 0);
+  }
   for (let i = 0; i < nx; i += 1) {
     for (let j = 0; j < nz; j += 1) {
       const ax = x0 + i * sx + gap;

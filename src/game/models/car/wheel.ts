@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { extrude, starShape } from '../kit/geo';
+import { extrude, heartShape, starShape } from '../kit/geo';
 import { PAL } from '../kit/palette';
 import { Assembler, ROLE_PAINT, type RecolorInfo } from './assembler';
 import { PBR } from './carMaterials';
@@ -31,17 +31,39 @@ function sampler(control: Array<[number, number]>): (t0: number, t1: number, n: 
   };
 }
 
+/** Round disc with a ring of heart-shaped windows, tips toward the middle. */
+function heartDisc(radius: number, ring: number, size: number, count: number): THREE.Shape {
+  const disc = new THREE.Shape();
+  disc.absarc(0, 0, radius, 0, Math.PI * 2, false);
+  const outline = heartShape(size).getPoints(7);
+  const box = new THREE.Box2().setFromPoints(outline);
+  const mid = box.getCenter(new THREE.Vector2());
+  for (let i = 0; i < count; i += 1) {
+    const a = (i / count) * Math.PI * 2;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    const pts = outline.map((p) => {
+      const x = p.x - mid.x;
+      const y = p.y - mid.y;
+      // The heart's top points away from the hub.
+      return new THREE.Vector2(c * y + s * x + c * ring, s * y - c * x + s * ring);
+    });
+    disc.holes.push(new THREE.Path(pts));
+  }
+  return disc;
+}
+
 export interface WheelBuild {
   geometry: THREE.BufferGeometry;
   recolor: RecolorInfo;
 }
 
 /**
- * Chunky balloon toy tire: soft plum rubber, cream whitewall, chrome rim lip,
- * gold hubcap with a raised pink star. Axle along +X, the pretty face at +X.
- * Radius CAR.wheelR, centered at the origin.
+ * Chunky balloon toy tire: dark plum rubber with big tread blocks, a cream whitewall
+ * and a chrome wheel with five heart windows over a painted dish, so the spin reads.
+ * Axle along +X, the pretty face at +X. Radius CAR.wheelR, centered at the origin.
  */
-export function buildWheelGeometry(segments = 24): WheelBuild {
+export function buildWheelGeometry(segments = 32): WheelBuild {
   const R = CAR.wheelR;
   const hw = CAR.wheelW / 2;
   const asm = new Assembler();
@@ -51,36 +73,45 @@ export function buildWheelGeometry(segments = 24): WheelBuild {
     [-hw * 0.93, R * 0.68],
     [-hw * 1.0, R * 0.8],
     [-hw * 0.94, R * 0.915],
-    [-hw * 0.7, R * 0.985],
-    [-hw * 0.3, R * 1.0],
-    [hw * 0.3, R * 1.0],
-    [hw * 0.7, R * 0.985],
+    [-hw * 0.7, R * 0.975],
+    [-hw * 0.3, R * 0.985],
+    [hw * 0.3, R * 0.985],
+    [hw * 0.7, R * 0.975],
     [hw * 0.94, R * 0.915],
     [hw * 1.0, R * 0.8],
     [hw * 0.93, R * 0.68],
     [hw * 0.74, R * 0.6],
   ]);
-  const tireColor = '#5a4262';
-  // Whitewall band on the outer sidewall between t = 0.8 .. 0.93 (crisp edges: separate strips).
-  const tWallA = 0.795;
-  const tWallB = 0.935;
+  const tireColor = '#3b2a45';
+  // Whitewall band on the outer sidewall (crisp edges: separate strips).
+  const tWallA = 0.765;
+  const tWallB = 0.945;
   asm.add(revolveX(tire(0, tWallA, 15), segments), tireColor, PBR.tire);
-  asm.add(revolveX(tire(tWallA, tWallB, 3), segments), PAL.whitewall, PBR.whitewall);
+  asm.add(revolveX(tire(tWallA, tWallB, 4), segments), PAL.whitewall, PBR.whitewall);
   asm.add(revolveX(tire(tWallB, 1, 2), segments), tireColor, PBR.tire);
 
-  // Inner closing disc (hidden side).
-  asm.add(revolveX([[-hw * 0.7, 0.001], [-hw * 0.74, R * 0.6]], 12), '#4a2c46', PBR.tire);
+  // Tread blocks: two staggered rows, so the tire looks like a tire from behind too.
+  const block = new THREE.BoxGeometry(hw * 0.66, R * 0.034, R * 0.15);
+  const blocks = 20;
+  for (let i = 0; i < blocks * 2; i += 1) {
+    const a = (i / (blocks * 2)) * Math.PI * 2;
+    const axial = (i % 2 === 0 ? -1 : 1) * hw * 0.42;
+    asm.add(block, tireColor, PBR.tire, { p: [axial, Math.cos(a) * R * 0.99, Math.sin(a) * R * 0.99], r: [a, 0, 0] });
+  }
 
-  // Chrome rim lip, then a cream dish, then the gold hubcap.
+  // Inner closing disc (hidden side).
+  asm.add(revolveX([[-hw * 0.7, 0.001], [-hw * 0.74, R * 0.6]], 12), '#2f2138', PBR.tire);
+
+  // Chrome rim lip, then the painted dish seen through the hearts.
   const a0 = hw * 0.74;
   asm.add(
     revolveX(
       [
         [a0, R * 0.6],
-        [a0 + 0.012, R * 0.585],
-        [a0 + 0.018, R * 0.56],
-        [a0 + 0.012, R * 0.53],
-        [a0 - 0.002, R * 0.51],
+        [a0 + 0.014, R * 0.59],
+        [a0 + 0.02, R * 0.565],
+        [a0 + 0.012, R * 0.54],
+        [a0 - 0.012, R * 0.525],
       ],
       segments,
     ),
@@ -90,30 +121,32 @@ export function buildWheelGeometry(segments = 24): WheelBuild {
   asm.add(
     revolveX(
       [
-        [a0 - 0.002, R * 0.51],
-        [a0 - 0.008, R * 0.47],
-        [a0 - 0.006, R * 0.43],
+        [a0 - 0.012, R * 0.525],
+        [a0 - 0.05, R * 0.5],
+        [a0 - 0.058, R * 0.001],
       ],
       segments,
     ),
-    PAL.whitewall,
+    PAL.carPaint,
     PBR.enamel,
+    { role: ROLE_PAINT, t: 0.5 },
   );
-  const hub: Array<[number, number]> = [
-    [a0 - 0.006, R * 0.43],
-    [a0 + 0.012, R * 0.425],
-    [a0 + 0.03, R * 0.39],
-    [a0 + 0.04, R * 0.33],
-    [a0 + 0.044, R * 0.24],
-    [a0 + 0.046, R * 0.001],
-  ];
-  asm.add(revolveX(hub, segments), PAL.gold, PBR.gold);
 
-  // Raised star on the hubcap face (points toward +X).
-  const star = extrude(starShape(R * 0.26, R * 0.12, 5), 0.012, 0.006, 1, 2);
-  asm.add(star, PAL.carPaint, PBR.enamel, { p: [a0 + 0.052, 0, 0], r: [0, Math.PI / 2, 0], role: ROLE_PAINT, t: 1 });
-  // Tiny gold center pip.
-  asm.add(new THREE.SphereGeometry(R * 0.07, 10, 6), PAL.gold, PBR.gold, { p: [a0 + 0.062, 0, 0], s: [0.6, 1, 1] });
+  // Chrome disc with five heart windows.
+  const disc = extrude(heartDisc(R * 0.525, R * 0.31, R * 0.27, 5), 0.012, 0.005, 1, 18);
+  asm.add(disc, PAL.chrome, PBR.chrome, { p: [a0 - 0.026, 0, 0], r: [0, Math.PI / 2, 0] });
+
+  // Gold hub with a raised pink star.
+  const hub: Array<[number, number]> = [
+    [a0 - 0.014, R * 0.205],
+    [a0 + 0.004, R * 0.2],
+    [a0 + 0.022, R * 0.17],
+    [a0 + 0.032, R * 0.11],
+    [a0 + 0.034, R * 0.001],
+  ];
+  asm.add(revolveX(hub, 20), PAL.gold, PBR.gold);
+  const star = extrude(starShape(R * 0.135, R * 0.062, 5), 0.008, 0.004, 1, 2);
+  asm.add(star, PAL.carPaint, PBR.enamel, { p: [a0 + 0.036, 0, 0], r: [0, Math.PI / 2, 0], role: ROLE_PAINT, t: 1 });
   const { geometry, recolor } = asm.build();
   return { geometry, recolor };
 }

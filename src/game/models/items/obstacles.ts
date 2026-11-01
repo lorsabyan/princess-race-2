@@ -3,6 +3,7 @@ import { createCones, disposeConeCaches } from './cones';
 import { createDucks, disposeDuckCaches } from './ducks';
 import { createCart, disposeCartCaches } from './cart';
 import { createPuddle, disposePuddleCaches } from './puddle';
+import { createMushrooms, createSheep } from '../country/critters';
 
 export type { ObstacleKind, ObstacleRig } from './rig';
 
@@ -15,6 +16,7 @@ export type { ObstacleKind, ObstacleRig } from './rig';
  *   ducks  – footprint (0.9, 0.5)  1 draw call (skinned family)
  *   cart   – footprint (1.1, 0.8)  1 draw call (+1 while petals fly)
  *   puddle – footprint (1.2, 1.0)  1 draw call (+3 while splashing)
+ *   sheep, mushrooms – footprints in sim/config.ts, 3 draw calls each (see country/critters.ts)
  */
 export function createObstacle(kind: ObstacleKind, seed = 0): ObstacleRig {
   switch (kind) {
@@ -26,6 +28,10 @@ export function createObstacle(kind: ObstacleKind, seed = 0): ObstacleRig {
       return createCart(seed);
     case 'puddle':
       return createPuddle(seed);
+    case 'sheep':
+      return createSheep(seed);
+    case 'mushrooms':
+      return createMushrooms(seed);
     default:
       throw new Error(`Unknown obstacle kind: ${String(kind)}`);
   }

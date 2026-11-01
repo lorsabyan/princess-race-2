@@ -18,3 +18,6 @@ export const CAR = {
   steerRadius: 0.2,
   spare: { y: 0.7, z: 1.62, scale: 0.84, lean: 0.2 },
 } as const;
+
+/** The scooped side panel between the wheels: an ellipsoid carved from the body, mirrored in x. */
+export const COVE = { x: 0.815, y: 0.56, z: 0.06, rx: 0.15, ry: 0.13, rz: 0.84 } as const;

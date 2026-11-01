@@ -13,6 +13,7 @@ import {
   VignetteEffect,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
+import { LOOK_NOW } from './look';
 
 export type QualityTier = 'high' | 'medium' | 'low';
 
@@ -112,16 +113,16 @@ export class Stage {
 
     this.bloom = new BloomEffect({
       mipmapBlur: true,
-      luminanceThreshold: 0.92,
+      luminanceThreshold: LOOK_NOW.bloom.threshold,
       luminanceSmoothing: 0.12,
-      intensity: 0.75,
+      intensity: LOOK_NOW.bloom.intensity,
       radius: 0.72,
       levels: 7,
     });
     this.tone = new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL });
-    this.vignette = new VignetteEffect({ offset: 0.28, darkness: 0.34 });
-    this.grade = new HueSaturationEffect({ saturation: 0.08, hue: 0 });
-    this.contrast = new BrightnessContrastEffect({ brightness: 0.0, contrast: 0.06 });
+    this.vignette = new VignetteEffect({ offset: 0.28, darkness: LOOK_NOW.vignette });
+    this.grade = new HueSaturationEffect({ saturation: LOOK_NOW.grade.saturation, hue: 0 });
+    this.contrast = new BrightnessContrastEffect({ brightness: LOOK_NOW.grade.brightness, contrast: LOOK_NOW.grade.contrast });
     this.smaa = new SMAAEffect({ preset: SMAAPreset.MEDIUM });
 
     this.applyTier();

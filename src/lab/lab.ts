@@ -114,7 +114,7 @@ async function main(): Promise<void> {
   lighting.follow(new THREE.Vector3(0, 0, 0));
   // The lab has no curved world.
   worldUniforms.uCurveY.value = 0;
-  worldUniforms.uCurveOrigin.value = 1e6;
+  worldUniforms.uCurveOrigin.value.set(0, 1e6);
 
   const registry = await loadRegistry();
   const names = (params.get('m') ?? '').split(',').filter(Boolean);

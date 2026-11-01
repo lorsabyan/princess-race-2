@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { capsule, cone, cyl, extrude, lathe, rbox, sphere, torus } from '../kit/geo';
 import { PAL } from '../kit/palette';
 import type { SdfNode } from '../kit/sdf';
-import { Assembler, ROLE_INTERIOR } from './assembler';
+import { Assembler, ROLE_INTERIOR, ROLE_PAINT } from './assembler';
 import { PBR } from './carMaterials';
-import { CAR } from './layout';
+import { CAR, COVE } from './layout';
 import { traceSurface, type SurfaceHit } from './sdfExtra';
 import { heartOutline, outlineTube, pathTube, pillow, smileOutline } from './shapes';
-import type { WheelBuild } from './wheel';
+import { revolveX, type WheelBuild } from './wheel';
 
 export interface TrimContext {
   /** Static parts sharing the car PBR material. */
@@ -532,6 +532,31 @@ export function addSpare(ctx: TrimContext, wheel: WheelBuild): { center: THREE.V
   });
   // Mount post into the tail.
   ctx.body.add(cyl(0.035, 0.035, 0.2, 14), PAL.chrome, PBR.chrome, { p: [0, y, h.p[2] + 0.02], r: [Math.PI / 2 - lean, 0, 0] });
+  // Painted cover over the wheel's face: a big gold-ringed heart right where the chase camera looks.
+  const R = CAR.wheelR;
+  const a0 = (CAR.wheelW / 2) * 0.74;
+  const dome = revolveX(
+    [
+      [a0 - 0.006, R * 0.6],
+      [a0 + 0.02, R * 0.56],
+      [a0 + 0.04, R * 0.4],
+      [a0 + 0.05, R * 0.001],
+    ],
+    32,
+  );
+  dome.applyMatrix4(m);
+  ctx.body.add(dome, PAL.carPaint, PBR.paint, { role: ROLE_PAINT, t: 0.25 });
+  const ring = torus(R * 0.585, 0.014, 8, 40);
+  ring.rotateY(Math.PI / 2);
+  ring.translate(a0 + 0.012, 0, 0);
+  ring.applyMatrix4(m);
+  ctx.body.add(ring, PAL.gold, PBR.gold);
+  // Pillows bulge toward +Z: turn it to the wheel's face (+X) with the heart's top up the world.
+  const heart = pillow(heartOutline(R * 0.82, 40), new THREE.Vector2(0, 0), { front: 0.022, back: 0, rings: [0.45, 0.8, 0.95, 1], flat: 2.2 });
+  heart.rotateY(Math.PI / 2);
+  heart.translate(a0 + 0.05, 0, 0);
+  heart.applyMatrix4(m);
+  ctx.body.add(heart, PAL.seat, PBR.enamel);
   return { center: new THREE.Vector3(0, y, z) };
 }
 
@@ -565,19 +590,51 @@ function wrapOnto(field: SdfNode, g: THREE.BufferGeometry, h: SurfaceHit, lift: 
 // ---------------------------------------------------------------------------
 export function addDoorHearts(ctx: TrimContext): void {
   for (const side of [-1, 1]) {
-    const h = hit(ctx.field, [side * 1.4, 0.64, 0.02], [-side, 0, 0]);
-    const outline = heartOutline(0.23, 40);
+    const h = hit(ctx.field, [side * 1.4, COVE.y, COVE.z - 0.05], [-side, 0, 0]);
+    const outline = heartOutline(0.2, 40);
     const heart = pillow(outline, new THREE.Vector2(0, 0), { front: 0.006, back: 0, rings: [0.5, 0.88, 1], flat: 2.5 });
     const wrapped = wrapOnto(ctx.field, heart, h, 0.0025);
-    ctx.body.add(wrapped, PAL.seat, PBR.enamel);
+    ctx.body.add(wrapped, PAL.gemPink, PBR.enamel);
     const rim = outlineTube(outline, 0.008, (q) => new THREE.Vector3(q.x * 1.02, q.y * 1.02, 0), 48, 4);
     ctx.body.add(wrapOnto(ctx.field, rim, h, 0.004), PAL.gold, PBR.gold);
     // Door handle: a small chrome capsule behind the heart, near the top of the door.
-    const hh = hit(ctx.field, [side * 1.4, 0.8, 0.36], [-side, 0, 0]);
-    ctx.body.add(capsule(0.013, 0.07, 4, 8), PAL.chrome, PBR.chrome, {
-      p: add(hh.p, hh.n, 0.008),
+    const hh = hit(ctx.field, [side * 1.4, 0.8, 0.44], [-side, 0, 0]);
+    ctx.body.add(capsule(0.016, 0.1, 4, 8), PAL.chrome, PBR.chrome, {
+      p: add(hh.p, hh.n, 0.012),
       r: [Math.PI / 2, 0, 0],
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Heart-shaped wing mirrors on chrome stalks, on top of the doors.
+// ---------------------------------------------------------------------------
+export function addMirrors(ctx: TrimContext): void {
+  const heart = pillow(heartOutline(0.15, 28), new THREE.Vector2(0, 0), { front: 0.026, back: 0.012, rings: [0.5, 0.85, 1], flat: 2.2 });
+  for (const side of [-1, 1]) {
+    const h = hit(ctx.field, [side * 0.62, 1.6, -0.34], [0, -1, 0]);
+    const base = new THREE.Vector3(...h.p);
+    const top = new THREE.Vector3(side * 0.72, h.p[1] + 0.14, -0.36);
+    ctx.body.add(pathTube([base, base.clone().lerp(top, 0.5).add(new THREE.Vector3(side * 0.03, 0, 0)), top], 0.011, 8, 6), PAL.chrome, PBR.chrome);
+    // Paint-colored back with a mirror on the face that looks rearward at the driver.
+    const r: V3 = [0.05, side * 0.18, 0];
+    ctx.body.add(heart, PAL.carPaint, PBR.enamel, { p: [top.x, top.y + 0.012, top.z + 0.002], r: [r[0], r[1] + Math.PI, r[2]], role: ROLE_PAINT });
+    ctx.body.add(heart, PAL.chrome, PBR.chrome, { p: [top.x, top.y + 0.012, top.z + 0.006], r, s: [0.84, 0.84, 0.6] });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Twin chrome tail pipes under the bumper and glowing bullets in the fin tips.
+// ---------------------------------------------------------------------------
+export function addTail(ctx: TrimContext, rear: { rearZ: number }): void {
+  for (const side of [-1, 1]) {
+    ctx.body.add(cyl(0.04, 0.036, 0.2, 14, true), PAL.chrome, PBR.chrome, { p: [side * 0.34, 0.24, rear.rearZ - 0.08], r: [Math.PI / 2, 0, 0] });
+    ctx.body.add(cyl(0.034, 0.034, 0.01, 14), '#2c1a2e', PBR.recess, { p: [side * 0.34, 0.24, rear.rearZ + 0.012], r: [Math.PI / 2, 0, 0] });
+    const h = hit(ctx.field, [side * 0.635, 0.9, 2.5], [0, 0, -1]);
+    const e = faceEuler(h.n);
+    const tip = add(h.p, h.n, 0.004);
+    ctx.body.add(torus(0.042, 0.012, 6, 18), PAL.chrome, PBR.chrome, { p: tip, r: e });
+    ctx.glow.add(new THREE.SphereGeometry(0.04, 14, 9), PAL.tailLight, PBR.enamel, { p: tip, r: e, s: [1, 1, 0.6], gain: 2.4 });
   }
 }
 

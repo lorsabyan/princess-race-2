@@ -23,7 +23,7 @@ function curveHook(): LabItem['update'] {
   if (params.get('curve') !== '1') return undefined;
   return () => {
     worldUniforms.uCurveY.value = 0.0016;
-    worldUniforms.uCurveOrigin.value = 8;
+    worldUniforms.uCurveOrigin.value.set(0, 8);
   };
 }
 

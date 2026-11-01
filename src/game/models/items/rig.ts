@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { itemMaterial } from './surface';
 
-export type ObstacleKind = 'cones' | 'ducks' | 'cart' | 'puddle';
+export type { ObstacleKind } from '../../sim/config';
+import type { ObstacleKind } from '../../sim/config';
 
 export interface ObstacleRig {
   root: THREE.Group;

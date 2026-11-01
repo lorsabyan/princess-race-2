@@ -164,7 +164,6 @@ varying vec4 vSurf;
 uniform float uItemGlow;
 #ifdef ITEM_WATER
 varying vec3 vItemWorld;
-uniform float uTime;
 #endif
 `;
 

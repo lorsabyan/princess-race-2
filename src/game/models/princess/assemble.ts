@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { PAL } from '../kit/palette';
 import { extrude, heartShape } from '../kit/geo';
 import { SkinBuilder, chainWeights, ramp, type PoseRanges, type WeightFn } from './skinBuilder';
-import { decimate, decimateTiming } from './decimate';
+import { decimate, decimateTiming } from '../kit/decimate';
 import { faceUv } from './faceAtlas';
-import { bowMatrix, buildBow, buildHair, buildHead, buildPigtail } from './headParts';
+import { bowMatrix, buildBow, buildHair, buildHead, buildPigtail, buildRibbons } from './headParts';
 import {
   DRESS_ACCENT,
   buildArm,
@@ -37,13 +37,16 @@ export interface PrincessGeometries {
 const TRIM = '#fff4f6';
 const TIGHTS = '#fff6f8';
 /** Pigtail bow scale (the bows are the chase camera's favorite detail). */
-const BOW_SCALE = 1.1;
+const BOW_SCALE = 1.3;
+
+/** A big crown: from the chase camera it is the first thing that says "princess". */
+const CROWN_SCALE = 1.3;
 
 /** Crown placement in root space: perched on the hair, tilted a little to her left and forward. */
 export function crownMatrix(): THREE.Matrix4 {
-  const p = new THREE.Vector3(HEAD_C[0] + 0.004, HEAD_C[1] + 0.255, HEAD_C[2] - 0.026);
-  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.15, 0.1, 0.13, 'XYZ'));
-  return new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1));
+  const p = new THREE.Vector3(HEAD_C[0] + 0.004, HEAD_C[1] + 0.262, HEAD_C[2] - 0.012);
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.05, 0.1, 0.1, 'XYZ'));
+  return new THREE.Matrix4().compose(p, q, new THREE.Vector3(CROWN_SCALE, CROWN_SCALE, CROWN_SCALE));
 }
 
 function armWeights(side: number): WeightFn {
@@ -110,6 +113,7 @@ export function buildPrincessGeometries(): PrincessGeometries {
     const bones = side < 0 ? [B.pigtailL1, B.pigtailL2, B.pigtailL3] : [B.pigtailR1, B.pigtailR2, B.pigtailR3];
     hair.add(decimate(buildPigtail(side), 1500), { p: HEAD_C, bone: chainWeights(joints, bones, 0.8) });
     hair.add(decimate(buildBow(BOW_SCALE), 1000), { matrix: headT.clone().multiply(bowMatrix(side)), bone: B.head });
+    hair.add(buildRibbons(side), { p: HEAD_C, bone: B.head });
   }
   time('pigtails', t);
 

@@ -1,4 +1,41 @@
 /** Hand-drawn SVG icons. Kid UI never relies on text, so icons carry all meaning. */
+import type { Area } from '../game/sim/route';
+
+/** Area pictures for the road bar and the welcome flash. */
+export function AreaIcon({ area }: { area: Area }) {
+  if (area === 'meadow') {
+    return (
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        {[0, 60, 120, 180, 240, 300].map((a) => (
+          <ellipse key={a} cx="32" cy="15" rx="10" ry="13" fill="#ff7fa6" transform={`rotate(${a} 32 32)`} />
+        ))}
+        <circle cx="32" cy="32" r="10" fill="#ffd84d" />
+      </svg>
+    );
+  }
+  if (area === 'forest') {
+    return (
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M24 34h16l3 19c.3 2-1.2 3.5-3 3.5H24c-1.800 0-3.300-1.500-3-3.500z" fill="#fff0dc" />
+        <path d="M5 37C5 20 17 8 32 8s27 12 27 29c0 1.700-1.300 3-3 3H8c-1.700 0-3-1.300-3-3z" fill="#ff5a6e" />
+        <circle cx="22" cy="24" r="5" fill="#fffdf8" />
+        <circle cx="41" cy="20" r="4" fill="#fffdf8" />
+        <circle cx="46" cy="31" r="3" fill="#fffdf8" />
+      </svg>
+    );
+  }
+  if (area === 'lake') {
+    return (
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M31 7v30H12z" fill="#ffb3cc" />
+        <path d="M36 12v25h15z" fill="#fff6ea" />
+        <path d="M9 41h46l-6 10H15z" fill="#e35a82" />
+        <path d="M5 57c5-4 9-4 14 0s9 4 13 0 9-4 13 0 9 4 14 0" fill="none" stroke="#58b8ee" stroke-width="5" stroke-linecap="round" />
+      </svg>
+    );
+  }
+  return <CrownIcon />;
+}
 
 export function PlayIcon() {
   return (

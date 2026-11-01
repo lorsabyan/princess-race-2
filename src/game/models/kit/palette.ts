@@ -71,8 +71,8 @@ export const PAL = {
   flowerOrange: '#ffa24d',
 
   // Hero car
-  carPaint: '#ff86b4',
-  carPaintDeep: '#f0679c',
+  carPaint: '#ff6aa9',
+  carPaintDeep: '#e2408b',
   carInterior: '#e0578c',
   seat: '#fff3e6',
   seatTuft: '#f3dccb',
@@ -85,11 +85,11 @@ export const PAL = {
   tailLight: '#ff4d7d',
 
   // Princess
-  skin: '#f6c7a6',
+  skin: '#ffd5be',
   skinShade: '#e9a98a',
   cheek: '#ff9aa8',
-  hair: '#8a4d2c',
-  hairLight: '#a8653b',
+  hair: '#7f4326',
+  hairLight: '#b56f3e',
   dress: '#ff9cc6',
   dressLight: '#ffd0e3',
   dressDeep: '#f27aae',

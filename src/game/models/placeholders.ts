@@ -16,8 +16,7 @@ import type {
   PrincessHome,
   PrincessRig,
   TownChunk,
-  TownChunkOptions,
-} from './contracts';
+  TownChunkOptions, ScenicRig } from './contracts';
 
 function box(w: number, h: number, d: number, color: string, y = h / 2): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color }));
@@ -120,12 +119,14 @@ export function heartGemMaterial(): THREE.Material {
 
 export function createObstacle(kind: ObstacleKind): ObstacleRig {
   const root = new THREE.Group();
-  const colors: Record<ObstacleKind, string> = { cones: PAL.cone, ducks: PAL.duck, cart: PAL.cart, puddle: PAL.flowerBlue };
+  const colors: Record<ObstacleKind, string> = { cones: PAL.cone, ducks: PAL.duck, cart: PAL.cart, puddle: PAL.flowerBlue, sheep: PAL.curb, mushrooms: PAL.flowerRed };
   const sizes: Record<ObstacleKind, [number, number, number]> = {
     cones: [2, 0.9, 1],
     ducks: [1.8, 0.6, 1],
     cart: [2.2, 1.6, 1.6],
     puddle: [2.4, 0.04, 2],
+    sheep: [2, 0.9, 1.2],
+    mushrooms: [2, 1.2, 1.4],
   };
   const [w, h, d] = sizes[kind];
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), curved(new THREE.MeshStandardMaterial({ color: colors[kind] })));
@@ -178,12 +179,23 @@ export function createBackdrop(): Backdrop {
   return { group, update: () => {}, dispose: () => {} };
 }
 
+function buildCountryChunk(index: number, seed: number): TownChunk {
+  return buildTownChunk(index, seed);
+}
+
+function createScenicRig(): ScenicRig {
+  return { group: new THREE.Group(), update: () => {}, dispose: () => {} };
+}
+
 export const placeholderLibrary: ModelLibrary = {
   chunkLength: CHUNK_LENGTH,
   createCar,
   createPrincess,
   buildTownChunk,
+  buildCountryChunk,
+  createScenicRig,
   createCoinGeometry,
+  createFarCoinGeometry: createCoinGeometry,
   coinMaterial,
   createHeartGemGeometry,
   heartGemMaterial,
